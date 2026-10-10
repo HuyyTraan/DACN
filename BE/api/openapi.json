@@ -1,0 +1,220 @@
+{
+    "openapi": "3.0.3",
+    "info": {
+        "title": "Omni Studio API",
+        "version": "1.0.0",
+        "description": "Prototype local: dữ liệu quản trị lưu PostgreSQL khi có DATABASE_URL, nếu không UI dùng localStorage. Chưa tích hợp authentication/đa tenant. Các chỉ số, OAuth, chat, SERP và lịch đăng là demo. Endpoint Facebook có tác dụng đăng thật; không gọi trong test."
+    },
+    "servers": [
+        {
+            "url": "http://localhost:3000"
+        }
+    ],
+    "paths": {
+        "/api/health": {
+            "get": {
+                "summary": "Kiểm tra HTTP server (không kiểm tra kết nối DB)",
+                "responses": {
+                    "200": {
+                        "description": "Server hoạt động"
+                    }
+                }
+            }
+        },
+        "/api/workspace": {
+            "get": {
+                "summary": "Tải dữ liệu workspace",
+                "responses": {
+                    "200": {
+                        "description": "mode: demo hoặc postgres; data và version khi dùng PostgreSQL"
+                    },
+                    "503": {
+                        "description": "Không kết nối được PostgreSQL"
+                    }
+                }
+            },
+            "put": {
+                "summary": "Lưu snapshot workspace vào PostgreSQL",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "required": ["data", "version"],
+                                "properties": {
+                                    "version": {
+                                        "type": "integer",
+                                        "minimum": 1
+                                    },
+                                    "data": {
+                                        "$ref": "#/components/schemas/Workspace"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Phiên bản mới"
+                    },
+                    "400": {
+                        "description": "Dữ liệu không hợp lệ"
+                    },
+                    "409": {
+                        "description": "Xung đột phiên bản; tải lại trước khi lưu"
+                    },
+                    "503": {
+                        "description": "Chưa cấu hình hoặc không kết nối được PostgreSQL"
+                    }
+                }
+            }
+        },
+        "/api/publish/facebook": {
+            "post": {
+                "summary": "Đăng văn bản lên Facebook Page thật",
+                "description": "Cần PAGE_ID và PAGE_ACCESS_TOKEN trên server. Chỉ hỗ trợ text, không ảnh/bình luận/lịch đăng. Gọi Graph API v21.0 theo mã nguồn gốc. Cần xác minh phiên bản và quyền Meta trước khi dùng thật.",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "required": ["noiDungBaiViet"],
+                                "properties": {
+                                    "noiDungBaiViet": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "example": "Nội dung bài viết được người dùng duyệt"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Đã đăng, trả facebookPostId"
+                    },
+                    "400": {
+                        "description": "Thiếu nội dung hoặc sai kiểu"
+                    },
+                    "500": {
+                        "description": "Facebook từ chối hoặc request timeout"
+                    },
+                    "503": {
+                        "description": "Chưa cấu hình Page/token"
+                    }
+                }
+            }
+        }
+    },
+    "components": {
+        "schemas": {
+            "Workspace": {
+                "type": "object",
+                "required": [
+                    "accounts",
+                    "channels",
+                    "campaigns",
+                    "posts",
+                    "ads",
+                    "customers",
+                    "keywords",
+                    "competitors",
+                    "conversations",
+                    "rankChecks"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                    "accounts": {
+                        "$ref": "#/components/schemas/Records"
+                    },
+                    "channels": {
+                        "$ref": "#/components/schemas/Records"
+                    },
+                    "campaigns": {
+                        "$ref": "#/components/schemas/Records"
+                    },
+                    "posts": {
+                        "$ref": "#/components/schemas/Posts"
+                    },
+                    "ads": {
+                        "$ref": "#/components/schemas/Records"
+                    },
+                    "customers": {
+                        "$ref": "#/components/schemas/Records"
+                    },
+                    "keywords": {
+                        "$ref": "#/components/schemas/Records"
+                    },
+                    "competitors": {
+                        "$ref": "#/components/schemas/Records"
+                    },
+                    "conversations": {
+                        "$ref": "#/components/schemas/Records"
+                    },
+                    "rankChecks": {
+                        "$ref": "#/components/schemas/Records"
+                    }
+                }
+            },
+            "Record": {
+                "type": "object",
+                "required": ["id", "name"],
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "maxLength": 100
+                    },
+                    "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 180
+                    }
+                },
+                "additionalProperties": true
+            },
+            "Records": {
+                "type": "array",
+                "maxItems": 1000,
+                "items": {
+                    "$ref": "#/components/schemas/Record"
+                }
+            },
+            "Posts": {
+                "type": "array",
+                "maxItems": 1000,
+                "items": {
+                    "allOf": [
+                        {
+                            "$ref": "#/components/schemas/Record"
+                        },
+                        {
+                            "type": "object",
+                            "required": ["content", "channels", "comments"],
+                            "properties": {
+                                "content": {
+                                    "type": "string"
+                                },
+                                "channels": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string"
+                                    }
+                                },
+                                "comments": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "object"
+                                    }
+                                }
+                            }
+                        }
+                    ]
+                }
+            }
+        }
+    }
+}
