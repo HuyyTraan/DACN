@@ -2,9 +2,16 @@
   "name": "test",
   "version": "1.0.0",
   "description": "",
-  "main": "index.js",
+  "main": "BE/server.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node BE/server.js",
+    "dev": "vite --config FE/vite.config.mjs --host 127.0.0.1",
+    "dev:api": "node --watch BE/server.js",
+    "build": "vite build --config FE/vite.config.mjs",
+    "check": "node --check BE/server.js && node --check FE/public/domain.js && node --check BE/server/workspace.js",
+    "test": "node --test",
+    "format": "prettier --write FE/src FE/public/domain.js FE/vite.config.mjs FE/index.html FE/test BE/server BE/server.js BE/api BE/workflows BE/test BE/compose.yaml README.md AGENTS.md",
+    "format:check": "prettier --check FE/src FE/public/domain.js FE/vite.config.mjs FE/index.html FE/test BE/server BE/server.js BE/api BE/workflows BE/test BE/compose.yaml README.md AGENTS.md"
   },
   "keywords": [],
   "author": "",
@@ -12,6 +19,17 @@
   "type": "commonjs",
   "dependencies": {
     "axios": "^1.20.0",
-    "express": "^5.2.1"
+    "dotenv": "^18.0.7",
+    "express": "^5.2.1",
+    "lucide-react": "^1.55.0",
+    "pg": "^8.23.1",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "swagger-ui-express": "^5.0.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^6.1.2",
+    "prettier": "^3.9.10",
+    "vite": "^8.3.4"
   }
 }

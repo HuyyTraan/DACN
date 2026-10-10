@@ -1,0 +1,66 @@
+{
+    "info": {
+        "name": "Omni Studio · Local API",
+        "description": "Health và workspace là read-only. Request đăng Facebook thật không nằm trong collection để tránh đăng nhầm khi chạy Collection Runner. Dùng Swagger và duyệt nội dung trước khi gọi endpoint publish.",
+        "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+    },
+    "variable": [{ "key": "baseUrl", "value": "http://localhost:3000" }],
+    "item": [
+        {
+            "name": "Health",
+            "request": { "method": "GET", "url": "{{baseUrl}}/api/health" },
+            "event": [
+                {
+                    "listen": "test",
+                    "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                            "pm.test('Server available', () => pm.response.to.have.status(200));",
+                            "pm.test('Health payload', () => pm.expect(pm.response.json().status).to.eql('ok'));"
+                        ]
+                    }
+                }
+            ]
+        },
+        {
+            "name": "Workspace",
+            "request": { "method": "GET", "url": "{{baseUrl}}/api/workspace" },
+            "event": [
+                {
+                    "listen": "test",
+                    "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                            "pm.test('Workspace available', () => pm.response.to.have.status(200));",
+                            "pm.test('Storage mode', () => pm.expect(['demo', 'postgres']).to.include(pm.response.json().mode));"
+                        ]
+                    }
+                }
+            ]
+        },
+        {
+            "name": "OpenAPI schema",
+            "request": { "method": "GET", "url": "{{baseUrl}}/api/openapi.json" }
+        },
+        {
+            "name": "Facebook validation (không đăng)",
+            "request": {
+                "method": "POST",
+                "header": [{ "key": "Content-Type", "value": "application/json" }],
+                "body": { "mode": "raw", "raw": "{\"noiDungBaiViet\":\"\"}" },
+                "url": "{{baseUrl}}/api/publish/facebook"
+            },
+            "event": [
+                {
+                    "listen": "test",
+                    "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                            "pm.test('Empty content rejected', () => pm.response.to.have.status(400));"
+                        ]
+                    }
+                }
+            ]
+        }
+    ]
+}
