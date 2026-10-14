@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="vi">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>Chính sách quyền riêng tư — Omni Studio</title>
+        <link rel="stylesheet" href="style.css" />
+    </head>
+    <body>
+        <main>
+            <p class="eyebrow">OMNI STUDIO</p>
+            <h1>Chính sách quyền riêng tư</h1>
+            <p>
+                Cập nhật: 14/10/2026. Chính sách này mô tả cách Omni Studio xử lý dữ liệu khi bạn sử
+                dụng ứng dụng quản lý nội dung và kết nối Facebook Page.
+            </p>
+
+            <h2>Dữ liệu chúng tôi xử lý</h2>
+            <ul>
+                <li>
+                    Thông tin tài khoản ứng dụng: tên, email, vai trò và mật khẩu ở dạng băm; phiên
+                    đăng nhập được quản lý bằng cookie.
+                </li>
+                <li>
+                    Nội dung bạn tạo trong workspace: bản nháp, hình ảnh tải lên, lịch đăng, trạng
+                    thái duyệt và lịch sử thao tác.
+                </li>
+                <li>
+                    Thông tin Facebook Page được kết nối: ID, tên, ảnh đại diện, bài viết và mã truy
+                    cập Page cần thiết để đọc hoặc đăng nội dung theo thao tác của người có quyền.
+                    Mã truy cập được giữ ở backend, không hiển thị trong trình duyệt.
+                </li>
+            </ul>
+
+            <h2>Mục đích sử dụng</h2>
+            <p>
+                Chúng tôi dùng dữ liệu để đăng nhập và phân quyền, quản lý nội dung nhóm, hiển thị
+                bài viết từ Page, gửi nội dung lên Page khi người dùng có quyền yêu cầu, chạy lịch
+                đăng đã được duyệt và ghi lại lịch sử để kiểm tra hoạt động.
+            </p>
+
+            <h2>Chia sẻ và lưu trữ</h2>
+            <p>
+                Dữ liệu ứng dụng được lưu trên cơ sở dữ liệu PostgreSQL do người vận hành triển khai
+                quản lý. Nội dung được gửi tới Meta khi bạn chọn đăng hoặc khi lịch đăng đã duyệt
+                đến hạn và worker được bật. Nếu người vận hành bật thông báo email, thông tin cần
+                thiết cho email được chuyển qua n8n và nhà cung cấp SMTP đã cấu hình. Chúng tôi
+                không bán dữ liệu người dùng.
+            </p>
+
+            <h2>Thời gian lưu và quyền của bạn</h2>
+            <p>
+                Dữ liệu được giữ trong thời gian cần thiết để vận hành workspace và lịch sử liên
+                quan, cho đến khi được xóa theo yêu cầu hợp lệ hoặc theo quy trình của người vận
+                hành. Bạn có thể đề nghị xem, chỉnh sửa hoặc xóa dữ liệu của mình qua
+                <a href="data-deletion.html">hướng dẫn xóa dữ liệu</a>. Ngắt kết nối Facebook Page
+                dừng việc sử dụng token đó trong ứng dụng; việc xóa bài đã đăng trên Facebook cần
+                được xử lý riêng trên Page.
+            </p>
+
+            <h2>Liên hệ</h2>
+            <p>
+                Để hỏi về dữ liệu hoặc gửi yêu cầu, liên hệ người vận hành ứng dụng tại
+                <a href="mailto:khaipham111005@gmail.com">khaipham111005@gmail.com</a>.
+            </p>
+            <nav aria-label="Điều hướng">
+                <a href="index.html">Trang đầu</a><a href="data-deletion.html">Xóa dữ liệu</a>
+            </nav>
+        </main>
+    </body>
+</html>
