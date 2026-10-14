@@ -3,7 +3,7 @@
     "info": {
         "title": "Omni Studio API",
         "version": "1.0.0",
-        "description": "Prototype local: dữ liệu quản trị lưu PostgreSQL khi có DATABASE_URL, nếu không UI dùng localStorage. Chưa tích hợp authentication/đa tenant. Các chỉ số, OAuth, chat, SERP và lịch đăng là demo. Endpoint Facebook có tác dụng đăng thật; không gọi trong test."
+        "description": "Một workspace PostgreSQL có đăng nhập, RBAC, session cookie và CSRF. Dữ liệu quản trị/lịch sử nội bộ bền vững. Facebook là adapter thật duy nhất; worker riêng opt-in. Không chạy publish thật khi test."
     },
     "servers": [
         {
@@ -28,10 +28,21 @@
                     "200": {
                         "description": "mode: demo hoặc postgres; data và version khi dùng PostgreSQL"
                     },
+                    "401": {
+                        "description": "Cần đăng nhập"
+                    },
+                    "403": {
+                        "description": "Không đủ quyền hoặc CSRF sai"
+                    },
                     "503": {
                         "description": "Không kết nối được PostgreSQL"
                     }
-                }
+                },
+                "security": [
+                    {
+                        "cookieAuth": []
+                    }
+                ]
             },
             "put": {
                 "summary": "Lưu snapshot workspace vào PostgreSQL",
@@ -62,18 +73,40 @@
                     "400": {
                         "description": "Dữ liệu không hợp lệ"
                     },
+                    "401": {
+                        "description": "Cần đăng nhập"
+                    },
+                    "403": {
+                        "description": "Không đủ quyền hoặc CSRF sai"
+                    },
                     "409": {
                         "description": "Xung đột phiên bản; tải lại trước khi lưu"
                     },
                     "503": {
                         "description": "Chưa cấu hình hoặc không kết nối được PostgreSQL"
                     }
-                }
+                },
+                "security": [
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "in": "header",
+                        "name": "X-CSRF-Token",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Lấy từ cookie omni_csrf của phiên hiện tại."
+                    }
+                ]
             }
         },
         "/api/publish/facebook": {
             "post": {
-                "summary": "Đăng văn bản lên Facebook Page thật",
+                "summary": "Đăng văn bản và một ảnh tùy chọn lên Page Facebook đã liên kết",
                 "description": "Cần PAGE_ID và PAGE_ACCESS_TOKEN trên server. Chỉ hỗ trợ text, không ảnh/bình luận/lịch đăng. Gọi Graph API v21.0 theo mã nguồn gốc. Cần xác minh phiên bản và quyền Meta trước khi dùng thật.",
                 "requestBody": {
                     "required": true,
@@ -86,7 +119,20 @@
                                     "noiDungBaiViet": {
                                         "type": "string",
                                         "minLength": 1,
-                                        "example": "Nội dung bài viết được người dùng duyệt"
+                                        "maxLength": 63206
+                                    },
+                                    "accountId": {
+                                        "type": "string",
+                                        "description": "ID tài khoản từ social/accounts; bỏ trống dùng Page cấu hình .env"
+                                    },
+                                    "image": {
+                                        "type": "string",
+                                        "description": "Data URL base64 JPG/PNG/WebP/GIF; tối đa 1 MB, kiểm tra magic bytes"
+                                    },
+                                    "requestId": {
+                                        "type": "string",
+                                        "format": "uuid",
+                                        "description": "Chống gửi trùng trong cùng tiến trình backend trong 24 giờ"
                                     }
                                 }
                             }
@@ -95,18 +141,2004 @@
                 },
                 "responses": {
                     "200": {
-                        "description": "Đã đăng, trả facebookPostId"
+                        "description": "Thành công"
                     },
                     "400": {
-                        "description": "Thiếu nội dung hoặc sai kiểu"
+                        "description": "Dữ liệu không hợp lệ"
                     },
-                    "500": {
-                        "description": "Facebook từ chối hoặc request timeout"
+                    "401": {
+                        "description": "Cần đăng nhập"
+                    },
+                    "403": {
+                        "description": "Không đủ quyền hoặc CSRF sai"
+                    },
+                    "409": {
+                        "description": "Request trùng/chưa rõ kết quả; kiểm tra Page trước khi thử lại"
+                    },
+                    "502": {
+                        "description": "Lỗi Meta/mạng"
                     },
                     "503": {
-                        "description": "Chưa cấu hình Page/token"
+                        "description": "Thiếu cấu hình hoặc kho token không đọc được"
+                    }
+                },
+                "security": [
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "in": "header",
+                        "name": "X-CSRF-Token",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Lấy từ cookie omni_csrf của phiên hiện tại."
+                    }
+                ]
+            }
+        },
+        "/api/social/accounts": {
+            "get": {
+                "summary": "Lấy danh tính, avatar và trạng thái Page thật; không trả token",
+                "responses": {
+                    "200": {
+                        "description": "Thành công"
+                    },
+                    "400": {
+                        "description": "Dữ liệu không hợp lệ"
+                    },
+                    "401": {
+                        "description": "Cần đăng nhập"
+                    },
+                    "403": {
+                        "description": "Không đủ quyền hoặc CSRF sai"
+                    },
+                    "502": {
+                        "description": "Lỗi Meta/mạng"
+                    },
+                    "503": {
+                        "description": "Thiếu cấu hình hoặc kho token không đọc được"
+                    }
+                },
+                "security": [
+                    {
+                        "cookieAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/social/accounts/{id}": {
+            "delete": {
+                "summary": "Ngắt liên kết OAuth (không xóa bài, không thu hồi quyền tại Meta)",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "ID tài khoản do /api/social/accounts trả về, ví dụ facebook:PAGE_ID"
+                    },
+                    {
+                        "in": "header",
+                        "name": "X-CSRF-Token",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Lấy từ cookie omni_csrf của phiên hiện tại."
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Thành công"
+                    },
+                    "400": {
+                        "description": "Dữ liệu không hợp lệ"
+                    },
+                    "401": {
+                        "description": "Cần đăng nhập"
+                    },
+                    "403": {
+                        "description": "Không đủ quyền hoặc CSRF sai"
+                    },
+                    "409": {
+                        "description": "Page có cấu hình .env; cần gỡ cấu hình trước"
+                    },
+                    "502": {
+                        "description": "Lỗi Meta/mạng"
+                    },
+                    "503": {
+                        "description": "Thiếu cấu hình hoặc kho token không đọc được"
+                    }
+                },
+                "security": [
+                    {
+                        "cookieAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/social/accounts/{id}/posts": {
+            "get": {
+                "summary": "Đọc bài đã đăng trên Page, gồm bài tạo ngoài Omni Studio",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "ID tài khoản do /api/social/accounts trả về, ví dụ facebook:PAGE_ID"
+                    },
+                    {
+                        "name": "after",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Cursor nextCursor từ lần gọi trước; không dùng URL paging của Meta"
+                    },
+                    {
+                        "in": "query",
+                        "name": "since",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 4102444800
+                        },
+                        "description": "Unix seconds; since/until phải đi cùng nhau, since < until, khoảng tối đa 366 ngày. Cursor dùng cùng khoảng ngày."
+                    },
+                    {
+                        "in": "query",
+                        "name": "until",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 4102444800
+                        },
+                        "description": "Unix seconds; since/until phải đi cùng nhau, since < until, khoảng tối đa 366 ngày. Cursor dùng cùng khoảng ngày."
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Thành công"
+                    },
+                    "400": {
+                        "description": "Dữ liệu không hợp lệ"
+                    },
+                    "401": {
+                        "description": "Cần đăng nhập"
+                    },
+                    "403": {
+                        "description": "Không đủ quyền hoặc CSRF sai"
+                    },
+                    "502": {
+                        "description": "Lỗi Meta/mạng"
+                    },
+                    "503": {
+                        "description": "Thiếu cấu hình hoặc kho token không đọc được"
+                    }
+                },
+                "security": [
+                    {
+                        "cookieAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/social/accounts/{id}/posts/{postId}": {
+            "patch": {
+                "summary": "Sửa văn bản bài thật trên Page (không thay ảnh)",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "ID tài khoản do /api/social/accounts trả về, ví dụ facebook:PAGE_ID"
+                    },
+                    {
+                        "name": "postId",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "ID bài thuộc Page đã chọn"
+                    },
+                    {
+                        "in": "header",
+                        "name": "X-CSRF-Token",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Lấy từ cookie omni_csrf của phiên hiện tại."
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "required": ["message"],
+                                "properties": {
+                                    "message": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "maxLength": 63206
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Thành công"
+                    },
+                    "400": {
+                        "description": "Dữ liệu không hợp lệ"
+                    },
+                    "401": {
+                        "description": "Cần đăng nhập"
+                    },
+                    "403": {
+                        "description": "Không đủ quyền hoặc CSRF sai"
+                    },
+                    "502": {
+                        "description": "Lỗi Meta/mạng"
+                    },
+                    "503": {
+                        "description": "Thiếu cấu hình hoặc kho token không đọc được"
+                    }
+                },
+                "security": [
+                    {
+                        "cookieAuth": []
+                    }
+                ]
+            },
+            "delete": {
+                "summary": "Xóa bài thật trên Page; UI yêu cầu xác nhận",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "ID tài khoản do /api/social/accounts trả về, ví dụ facebook:PAGE_ID"
+                    },
+                    {
+                        "name": "postId",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "ID bài thuộc Page đã chọn"
+                    },
+                    {
+                        "in": "header",
+                        "name": "X-CSRF-Token",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Lấy từ cookie omni_csrf của phiên hiện tại."
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Thành công"
+                    },
+                    "400": {
+                        "description": "Dữ liệu không hợp lệ"
+                    },
+                    "401": {
+                        "description": "Cần đăng nhập"
+                    },
+                    "403": {
+                        "description": "Không đủ quyền hoặc CSRF sai"
+                    },
+                    "502": {
+                        "description": "Lỗi Meta/mạng"
+                    },
+                    "503": {
+                        "description": "Thiếu cấu hình hoặc kho token không đọc được"
+                    }
+                },
+                "security": [
+                    {
+                        "cookieAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/social/facebook/connect": {
+            "get": {
+                "summary": "Bắt đầu Facebook Login với state và cookie HttpOnly",
+                "responses": {
+                    "302": {
+                        "description": "Chuyển tới trang cấp quyền chính thức Meta"
+                    },
+                    "401": {
+                        "description": "Cần đăng nhập"
+                    },
+                    "403": {
+                        "description": "Không đủ quyền hoặc CSRF sai"
+                    },
+                    "503": {
+                        "description": "Thiếu App ID/Secret/khóa mã hóa"
+                    }
+                },
+                "security": [
+                    {
+                        "cookieAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/social/facebook/callback": {
+            "get": {
+                "summary": "Callback OAuth đã đăng ký; chỉ dùng qua trình duyệt",
+                "responses": {
+                    "302": {
+                        "description": "Trở về giao diện chọn Page hoặc lỗi an toàn"
                     }
                 }
+            }
+        },
+        "/api/social/facebook/pages": {
+            "get": {
+                "summary": "Page được phép liên kết trong phiên OAuth; không trả token",
+                "responses": {
+                    "200": {
+                        "description": "Thành công"
+                    },
+                    "400": {
+                        "description": "Dữ liệu không hợp lệ"
+                    },
+                    "401": {
+                        "description": "Cần đăng nhập"
+                    },
+                    "403": {
+                        "description": "Không đủ quyền hoặc CSRF sai"
+                    },
+                    "502": {
+                        "description": "Lỗi Meta/mạng"
+                    },
+                    "503": {
+                        "description": "Thiếu cấu hình hoặc kho token không đọc được"
+                    }
+                },
+                "security": [
+                    {
+                        "cookieAuth": []
+                    }
+                ]
+            },
+            "post": {
+                "summary": "Liên kết Page đã chọn và mã hóa token trên backend",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "required": ["pageIds"],
+                                "properties": {
+                                    "pageIds": {
+                                        "type": "array",
+                                        "minItems": 1,
+                                        "maxItems": 50,
+                                        "items": {
+                                            "type": "string"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Thành công"
+                    },
+                    "400": {
+                        "description": "Dữ liệu không hợp lệ"
+                    },
+                    "401": {
+                        "description": "Cần đăng nhập"
+                    },
+                    "403": {
+                        "description": "Không đủ quyền hoặc CSRF sai"
+                    },
+                    "502": {
+                        "description": "Lỗi Meta/mạng"
+                    },
+                    "503": {
+                        "description": "Thiếu cấu hình hoặc kho token không đọc được"
+                    }
+                },
+                "security": [
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "in": "header",
+                        "name": "X-CSRF-Token",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Lấy từ cookie omni_csrf của phiên hiện tại."
+                    }
+                ]
+            }
+        },
+        "/api/publishing/status": {
+            "get": {
+                "summary": "Kiểm tra kho kế hoạch, cập nhật lượt quá hạn và cấu hình worker (không xác nhận tiến trình đang chạy)",
+                "responses": {
+                    "200": {
+                        "description": "Trạng thái",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "ready": {
+                                            "type": "boolean"
+                                        },
+                                        "workerEnabled": {
+                                            "type": "boolean"
+                                        },
+                                        "error": {
+                                            "type": "string",
+                                            "description": "Thông báo an toàn khi kho kế hoạch chưa sẵn sàng; không chứa credential."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Cần đăng nhập"
+                    },
+                    "403": {
+                        "description": "Không đủ quyền hoặc CSRF sai"
+                    }
+                },
+                "security": [
+                    {
+                        "cookieAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/publishing/plans": {
+            "get": {
+                "summary": "Danh sách kế hoạch và kết quả từng lượt đăng; lượt queued quá hạn hơn 2 phút được hủy trước khi đọc",
+                "parameters": [
+                    {
+                        "in": "query",
+                        "name": "offset",
+                        "schema": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "default": 0
+                        }
+                    },
+                    {
+                        "in": "query",
+                        "name": "limit",
+                        "schema": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 100,
+                            "default": 50
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Trang kế hoạch",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "plans": {
+                                            "type": "array",
+                                            "items": {
+                                                "$ref": "#/components/schemas/PublishingPlan"
+                                            }
+                                        },
+                                        "nextOffset": {
+                                            "type": "integer",
+                                            "nullable": true
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Dữ liệu không hợp lệ"
+                    },
+                    "401": {
+                        "description": "Cần đăng nhập"
+                    },
+                    "403": {
+                        "description": "Không đủ quyền hoặc CSRF sai"
+                    },
+                    "503": {
+                        "description": "DB/migration chưa sẵn sàng"
+                    }
+                },
+                "security": [
+                    {
+                        "cookieAuth": []
+                    }
+                ]
+            },
+            "post": {
+                "summary": "Tạo kế hoạch; scheduled tạo delivery trong cùng transaction. Không gửi ngay ở HTTP.",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PublishingPlan"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "description": "Kế hoạch đã tạo",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PublishingPlan"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Dữ liệu không hợp lệ"
+                    },
+                    "401": {
+                        "description": "Cần đăng nhập"
+                    },
+                    "403": {
+                        "description": "Không đủ quyền hoặc CSRF sai"
+                    },
+                    "409": {
+                        "description": "Phiên bản hoặc ID kế hoạch xung đột; tải lại"
+                    },
+                    "422": {
+                        "description": "Reply scheduled chưa hỗ trợ"
+                    },
+                    "503": {
+                        "description": "DB/migration chưa sẵn sàng"
+                    }
+                },
+                "security": [
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "in": "header",
+                        "name": "X-CSRF-Token",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Lấy từ cookie omni_csrf của phiên hiện tại."
+                    }
+                ]
+            }
+        },
+        "/api/publishing/plans/{id}": {
+            "put": {
+                "summary": "Thay nội dung/lịch trước khi bắt đầu đăng; bắt buộc version",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    },
+                    {
+                        "in": "header",
+                        "name": "X-CSRF-Token",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Lấy từ cookie omni_csrf của phiên hiện tại."
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PublishingPlan"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Phiên bản mới",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PublishingPlan"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Dữ liệu không hợp lệ"
+                    },
+                    "401": {
+                        "description": "Cần đăng nhập"
+                    },
+                    "403": {
+                        "description": "Không đủ quyền hoặc CSRF sai"
+                    },
+                    "404": {
+                        "description": "Kế hoạch không tồn tại"
+                    },
+                    "409": {
+                        "description": "Phiên bản hoặc ID kế hoạch xung đột; tải lại"
+                    },
+                    "422": {
+                        "description": "Reply scheduled chưa hỗ trợ"
+                    },
+                    "503": {
+                        "description": "DB/migration chưa sẵn sàng"
+                    }
+                },
+                "security": [
+                    {
+                        "cookieAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/publishing/plans/{id}/cancel": {
+            "post": {
+                "summary": "Hủy lượt đang chờ; không thu hồi lượt đã gửi",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    },
+                    {
+                        "in": "header",
+                        "name": "X-CSRF-Token",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Lấy từ cookie omni_csrf của phiên hiện tại."
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "required": ["version"],
+                                "properties": {
+                                    "version": {
+                                        "type": "integer",
+                                        "minimum": 1
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Phiên bản mới"
+                    },
+                    "400": {
+                        "description": "Dữ liệu không hợp lệ"
+                    },
+                    "401": {
+                        "description": "Cần đăng nhập"
+                    },
+                    "403": {
+                        "description": "Không đủ quyền hoặc CSRF sai"
+                    },
+                    "409": {
+                        "description": "Phiên bản hoặc ID kế hoạch xung đột; tải lại"
+                    },
+                    "503": {
+                        "description": "DB/migration chưa sẵn sàng"
+                    }
+                },
+                "security": [
+                    {
+                        "cookieAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/auth/bootstrap": {
+            "post": {
+                "summary": "Tạo admin đầu tiên (chỉ khi users rỗng)",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "required": ["email", "name", "password"],
+                                "properties": {
+                                    "email": {
+                                        "type": "string",
+                                        "format": "email"
+                                    },
+                                    "name": {
+                                        "type": "string",
+                                        "maxLength": 100
+                                    },
+                                    "password": {
+                                        "type": "string",
+                                        "minLength": 12,
+                                        "maxLength": 128
+                                    },
+                                    "role": {
+                                        "type": "string",
+                                        "enum": ["admin", "manager", "editor", "viewer"]
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Thành công"
+                    },
+                    "400": {
+                        "description": "Dữ liệu không hợp lệ"
+                    },
+                    "401": {
+                        "description": "Cần đăng nhập"
+                    },
+                    "403": {
+                        "description": "Không đủ quyền hoặc CSRF sai"
+                    },
+                    "409": {
+                        "description": "Phiên bản đã thay đổi hoặc conflict"
+                    },
+                    "429": {
+                        "description": "Giới hạn lần thử đăng nhập"
+                    },
+                    "503": {
+                        "description": "Kho dữ liệu chưa sẵn sàng"
+                    }
+                }
+            }
+        },
+        "/api/auth/login": {
+            "post": {
+                "summary": "Đăng nhập: HttpOnly session + CSRF cookie",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "required": ["email", "password"],
+                                "properties": {
+                                    "email": {
+                                        "type": "string"
+                                    },
+                                    "password": {
+                                        "type": "string"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Thành công"
+                    },
+                    "400": {
+                        "description": "Dữ liệu không hợp lệ"
+                    },
+                    "401": {
+                        "description": "Cần đăng nhập"
+                    },
+                    "403": {
+                        "description": "Không đủ quyền hoặc CSRF sai"
+                    },
+                    "409": {
+                        "description": "Phiên bản đã thay đổi hoặc conflict"
+                    },
+                    "429": {
+                        "description": "Giới hạn lần thử đăng nhập"
+                    },
+                    "503": {
+                        "description": "Kho dữ liệu chưa sẵn sàng"
+                    }
+                }
+            }
+        },
+        "/api/auth/logout": {
+            "post": {
+                "summary": "Đăng xuất và thu hồi phiên",
+                "security": [
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "in": "header",
+                        "name": "X-CSRF-Token",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Lấy từ cookie omni_csrf của phiên hiện tại."
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Thành công"
+                    },
+                    "400": {
+                        "description": "Dữ liệu không hợp lệ"
+                    },
+                    "401": {
+                        "description": "Cần đăng nhập"
+                    },
+                    "403": {
+                        "description": "Không đủ quyền hoặc CSRF sai"
+                    },
+                    "409": {
+                        "description": "Phiên bản đã thay đổi hoặc conflict"
+                    },
+                    "429": {
+                        "description": "Giới hạn lần thử đăng nhập"
+                    },
+                    "503": {
+                        "description": "Kho dữ liệu chưa sẵn sàng"
+                    }
+                }
+            }
+        },
+        "/api/auth/password": {
+            "post": {
+                "summary": "Đổi mật khẩu và thu hồi mọi phiên",
+                "security": [
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "in": "header",
+                        "name": "X-CSRF-Token",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Lấy từ cookie omni_csrf của phiên hiện tại."
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "required": ["currentPassword", "password"],
+                                "properties": {
+                                    "currentPassword": {
+                                        "type": "string"
+                                    },
+                                    "password": {
+                                        "type": "string",
+                                        "minLength": 12,
+                                        "maxLength": 128
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Thành công"
+                    },
+                    "400": {
+                        "description": "Dữ liệu không hợp lệ"
+                    },
+                    "401": {
+                        "description": "Cần đăng nhập"
+                    },
+                    "403": {
+                        "description": "Không đủ quyền hoặc CSRF sai"
+                    },
+                    "409": {
+                        "description": "Phiên bản đã thay đổi hoặc conflict"
+                    },
+                    "429": {
+                        "description": "Giới hạn lần thử đăng nhập"
+                    },
+                    "503": {
+                        "description": "Kho dữ liệu chưa sẵn sàng"
+                    }
+                }
+            }
+        },
+        "/api/auth/session": {
+            "get": {
+                "summary": "Đọc phiên hoặc bootstrapRequired",
+                "responses": {
+                    "200": {
+                        "description": "Thành công"
+                    },
+                    "400": {
+                        "description": "Dữ liệu không hợp lệ"
+                    },
+                    "401": {
+                        "description": "Cần đăng nhập"
+                    },
+                    "403": {
+                        "description": "Không đủ quyền hoặc CSRF sai"
+                    },
+                    "409": {
+                        "description": "Phiên bản đã thay đổi hoặc conflict"
+                    },
+                    "503": {
+                        "description": "Kho dữ liệu chưa sẵn sàng"
+                    }
+                }
+            }
+        },
+        "/api/auth/users": {
+            "get": {
+                "summary": "Danh sách thành viên (admin)",
+                "security": [
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Thành công"
+                    },
+                    "400": {
+                        "description": "Dữ liệu không hợp lệ"
+                    },
+                    "401": {
+                        "description": "Cần đăng nhập"
+                    },
+                    "403": {
+                        "description": "Không đủ quyền hoặc CSRF sai"
+                    },
+                    "409": {
+                        "description": "Phiên bản đã thay đổi hoặc conflict"
+                    },
+                    "503": {
+                        "description": "Kho dữ liệu chưa sẵn sàng"
+                    }
+                }
+            },
+            "post": {
+                "summary": "Tạo thành viên (admin)",
+                "security": [
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "in": "header",
+                        "name": "X-CSRF-Token",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Lấy từ cookie omni_csrf của phiên hiện tại."
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "required": ["email", "name", "password"],
+                                "properties": {
+                                    "email": {
+                                        "type": "string",
+                                        "format": "email"
+                                    },
+                                    "name": {
+                                        "type": "string",
+                                        "maxLength": 100
+                                    },
+                                    "password": {
+                                        "type": "string",
+                                        "minLength": 12,
+                                        "maxLength": 128
+                                    },
+                                    "role": {
+                                        "type": "string",
+                                        "enum": ["admin", "manager", "editor", "viewer"]
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Thành công"
+                    },
+                    "201": {
+                        "description": "Đã tạo"
+                    },
+                    "400": {
+                        "description": "Dữ liệu không hợp lệ"
+                    },
+                    "401": {
+                        "description": "Cần đăng nhập"
+                    },
+                    "403": {
+                        "description": "Không đủ quyền hoặc CSRF sai"
+                    },
+                    "409": {
+                        "description": "Phiên bản đã thay đổi hoặc conflict"
+                    },
+                    "503": {
+                        "description": "Kho dữ liệu chưa sẵn sàng"
+                    }
+                }
+            }
+        },
+        "/api/auth/users/{id}": {
+            "patch": {
+                "summary": "Đổi quyền/khóa thành viên; giữ một admin, thu hồi session",
+                "security": [
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    },
+                    {
+                        "in": "header",
+                        "name": "X-CSRF-Token",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Lấy từ cookie omni_csrf của phiên hiện tại."
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "required": ["role", "active"],
+                                "properties": {
+                                    "role": {
+                                        "type": "string",
+                                        "enum": ["admin", "manager", "editor", "viewer"]
+                                    },
+                                    "active": {
+                                        "type": "boolean"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Thành công"
+                    },
+                    "400": {
+                        "description": "Dữ liệu không hợp lệ"
+                    },
+                    "401": {
+                        "description": "Cần đăng nhập"
+                    },
+                    "403": {
+                        "description": "Không đủ quyền hoặc CSRF sai"
+                    },
+                    "409": {
+                        "description": "Phiên bản đã thay đổi hoặc conflict"
+                    },
+                    "503": {
+                        "description": "Kho dữ liệu chưa sẵn sàng"
+                    }
+                }
+            }
+        },
+        "/api/history": {
+            "get": {
+                "summary": "Nhật ký thao tác có cursor before",
+                "security": [
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Thành công"
+                    },
+                    "400": {
+                        "description": "Dữ liệu không hợp lệ"
+                    },
+                    "401": {
+                        "description": "Cần đăng nhập"
+                    },
+                    "403": {
+                        "description": "Không đủ quyền hoặc CSRF sai"
+                    },
+                    "409": {
+                        "description": "Phiên bản đã thay đổi hoặc conflict"
+                    },
+                    "503": {
+                        "description": "Kho dữ liệu chưa sẵn sàng"
+                    }
+                }
+            }
+        },
+        "/api/snapshots": {
+            "get": {
+                "summary": "Các phiên bản workspace đã giữ (admin/manager)",
+                "security": [
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Thành công"
+                    },
+                    "400": {
+                        "description": "Dữ liệu không hợp lệ"
+                    },
+                    "401": {
+                        "description": "Cần đăng nhập"
+                    },
+                    "403": {
+                        "description": "Không đủ quyền hoặc CSRF sai"
+                    },
+                    "409": {
+                        "description": "Phiên bản đã thay đổi hoặc conflict"
+                    },
+                    "503": {
+                        "description": "Kho dữ liệu chưa sẵn sàng"
+                    }
+                }
+            }
+        },
+        "/api/dashboard": {
+            "get": {
+                "summary": "Tổng hợp từ bản ghi PostgreSQL, không số liệu giả",
+                "security": [
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Thành công"
+                    },
+                    "400": {
+                        "description": "Dữ liệu không hợp lệ"
+                    },
+                    "401": {
+                        "description": "Cần đăng nhập"
+                    },
+                    "403": {
+                        "description": "Không đủ quyền hoặc CSRF sai"
+                    },
+                    "409": {
+                        "description": "Phiên bản đã thay đổi hoặc conflict"
+                    },
+                    "503": {
+                        "description": "Kho dữ liệu chưa sẵn sàng"
+                    }
+                }
+            }
+        },
+        "/api/history/{id}": {
+            "get": {
+                "summary": "Chi tiết before/after (admin/manager)",
+                "security": [
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Thành công"
+                    },
+                    "400": {
+                        "description": "Dữ liệu không hợp lệ"
+                    },
+                    "401": {
+                        "description": "Cần đăng nhập"
+                    },
+                    "403": {
+                        "description": "Không đủ quyền hoặc CSRF sai"
+                    },
+                    "409": {
+                        "description": "Phiên bản đã thay đổi hoặc conflict"
+                    },
+                    "503": {
+                        "description": "Kho dữ liệu chưa sẵn sàng"
+                    }
+                }
+            }
+        },
+        "/api/snapshots/{id}/restore": {
+            "post": {
+                "summary": "Khôi phục snapshot quản trị (admin), không thay hàng đợi đăng",
+                "security": [
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "in": "header",
+                        "name": "X-CSRF-Token",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Lấy từ cookie omni_csrf của phiên hiện tại."
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "required": ["version"],
+                                "properties": {
+                                    "version": {
+                                        "type": "integer",
+                                        "minimum": 1
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Thành công"
+                    },
+                    "400": {
+                        "description": "Dữ liệu không hợp lệ"
+                    },
+                    "401": {
+                        "description": "Cần đăng nhập"
+                    },
+                    "403": {
+                        "description": "Không đủ quyền hoặc CSRF sai"
+                    },
+                    "409": {
+                        "description": "Phiên bản đã thay đổi hoặc conflict"
+                    },
+                    "503": {
+                        "description": "Kho dữ liệu chưa sẵn sàng"
+                    }
+                }
+            }
+        },
+        "/api/records/{collection}": {
+            "get": {
+                "summary": "Đọc bản ghi có version và phân trang; socialAccounts chỉ đọc",
+                "security": [
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "collection",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "enum": [
+                                "accounts",
+                                "channels",
+                                "campaigns",
+                                "posts",
+                                "ads",
+                                "customers",
+                                "keywords",
+                                "competitors",
+                                "conversations",
+                                "rankChecks",
+                                "workflows",
+                                "workflowRuns",
+                                "metrics",
+                                "traffic",
+                                "reports",
+                                "media",
+                                "notifications",
+                                "settings",
+                                "tags",
+                                "approvals",
+                                "socialAccounts"
+                            ]
+                        }
+                    },
+                    {
+                        "in": "query",
+                        "name": "limit",
+                        "schema": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 1000
+                        }
+                    },
+                    {
+                        "in": "query",
+                        "name": "offset",
+                        "schema": {
+                            "type": "integer",
+                            "minimum": 0
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Thành công"
+                    },
+                    "400": {
+                        "description": "Dữ liệu không hợp lệ"
+                    },
+                    "401": {
+                        "description": "Cần đăng nhập"
+                    },
+                    "403": {
+                        "description": "Không đủ quyền hoặc CSRF sai"
+                    },
+                    "409": {
+                        "description": "Phiên bản đã thay đổi hoặc conflict"
+                    },
+                    "503": {
+                        "description": "Kho dữ liệu chưa sẵn sàng"
+                    }
+                }
+            },
+            "post": {
+                "summary": "Tạo bản ghi chức năng nội bộ; không kích hoạt dịch vụ ngoài",
+                "security": [
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "collection",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "enum": [
+                                "accounts",
+                                "channels",
+                                "campaigns",
+                                "posts",
+                                "ads",
+                                "customers",
+                                "keywords",
+                                "competitors",
+                                "conversations",
+                                "rankChecks",
+                                "workflows",
+                                "workflowRuns",
+                                "metrics",
+                                "traffic",
+                                "reports",
+                                "media",
+                                "notifications",
+                                "settings",
+                                "tags",
+                                "approvals",
+                                "socialAccounts"
+                            ]
+                        }
+                    },
+                    {
+                        "in": "header",
+                        "name": "X-CSRF-Token",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Lấy từ cookie omni_csrf của phiên hiện tại."
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "required": ["record"],
+                                "properties": {
+                                    "record": {
+                                        "type": "object",
+                                        "required": ["name"],
+                                        "additionalProperties": true
+                                    },
+                                    "version": {
+                                        "type": "integer",
+                                        "minimum": 1,
+                                        "description": "Bắt buộc với collections core; là workspace version. Với extension PUT/DELETE dùng recordVersion."
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Thành công"
+                    },
+                    "201": {
+                        "description": "Đã tạo"
+                    },
+                    "400": {
+                        "description": "Dữ liệu không hợp lệ"
+                    },
+                    "401": {
+                        "description": "Cần đăng nhập"
+                    },
+                    "403": {
+                        "description": "Không đủ quyền hoặc CSRF sai"
+                    },
+                    "409": {
+                        "description": "Phiên bản đã thay đổi hoặc conflict"
+                    },
+                    "503": {
+                        "description": "Kho dữ liệu chưa sẵn sàng"
+                    }
+                }
+            }
+        },
+        "/api/records/{collection}/{id}": {
+            "put": {
+                "summary": "Sửa với kiểm tra version",
+                "security": [
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "collection",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "enum": [
+                                "accounts",
+                                "channels",
+                                "campaigns",
+                                "posts",
+                                "ads",
+                                "customers",
+                                "keywords",
+                                "competitors",
+                                "conversations",
+                                "rankChecks",
+                                "workflows",
+                                "workflowRuns",
+                                "metrics",
+                                "traffic",
+                                "reports",
+                                "media",
+                                "notifications",
+                                "settings",
+                                "tags",
+                                "approvals",
+                                "socialAccounts"
+                            ]
+                        }
+                    },
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "in": "header",
+                        "name": "X-CSRF-Token",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Lấy từ cookie omni_csrf của phiên hiện tại."
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "required": ["record"],
+                                "properties": {
+                                    "record": {
+                                        "type": "object",
+                                        "required": ["name"],
+                                        "additionalProperties": true
+                                    },
+                                    "version": {
+                                        "type": "integer",
+                                        "minimum": 1,
+                                        "description": "Bắt buộc với collections core; là workspace version. Với extension PUT/DELETE dùng recordVersion."
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Thành công"
+                    },
+                    "400": {
+                        "description": "Dữ liệu không hợp lệ"
+                    },
+                    "401": {
+                        "description": "Cần đăng nhập"
+                    },
+                    "403": {
+                        "description": "Không đủ quyền hoặc CSRF sai"
+                    },
+                    "409": {
+                        "description": "Phiên bản đã thay đổi hoặc conflict"
+                    },
+                    "503": {
+                        "description": "Kho dữ liệu chưa sẵn sàng"
+                    }
+                }
+            },
+            "delete": {
+                "summary": "Soft-delete, giữ audit",
+                "security": [
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "collection",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "enum": [
+                                "accounts",
+                                "channels",
+                                "campaigns",
+                                "posts",
+                                "ads",
+                                "customers",
+                                "keywords",
+                                "competitors",
+                                "conversations",
+                                "rankChecks",
+                                "workflows",
+                                "workflowRuns",
+                                "metrics",
+                                "traffic",
+                                "reports",
+                                "media",
+                                "notifications",
+                                "settings",
+                                "tags",
+                                "approvals",
+                                "socialAccounts"
+                            ]
+                        }
+                    },
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "in": "header",
+                        "name": "X-CSRF-Token",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Lấy từ cookie omni_csrf của phiên hiện tại."
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "required": ["version"],
+                                "properties": {
+                                    "version": {
+                                        "type": "integer",
+                                        "minimum": 1
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Thành công"
+                    },
+                    "400": {
+                        "description": "Dữ liệu không hợp lệ"
+                    },
+                    "401": {
+                        "description": "Cần đăng nhập"
+                    },
+                    "403": {
+                        "description": "Không đủ quyền hoặc CSRF sai"
+                    },
+                    "409": {
+                        "description": "Phiên bản đã thay đổi hoặc conflict"
+                    },
+                    "503": {
+                        "description": "Kho dữ liệu chưa sẵn sàng"
+                    }
+                }
+            }
+        },
+        "/api/auth/users/{id}/password": {
+            "post": {
+                "summary": "Admin đặt lại mật khẩu thành viên: xác nhận mật khẩu admin, thu hồi mọi session target",
+                "security": [
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    },
+                    {
+                        "in": "header",
+                        "name": "X-CSRF-Token",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "required": ["password", "adminPassword"],
+                                "properties": {
+                                    "password": {
+                                        "type": "string",
+                                        "minLength": 12,
+                                        "maxLength": 128
+                                    },
+                                    "adminPassword": {
+                                        "type": "string",
+                                        "maxLength": 128
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Đã đặt lại và thu hồi phiên"
+                    },
+                    "400": {
+                        "description": "Dữ liệu không hợp lệ"
+                    },
+                    "401": {
+                        "description": "Sai mật khẩu admin hoặc chưa đăng nhập"
+                    },
+                    "403": {
+                        "description": "Không phải admin hoặc CSRF sai"
+                    }
+                }
+            }
+        },
+        "/api/publishing/plans/{id}/approve": {
+            "post": {
+                "summary": "Admin/Manager duyệt pending chưa quá giờ và tạo hàng đợi đăng",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    },
+                    {
+                        "in": "header",
+                        "name": "X-CSRF-Token",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Lấy từ cookie omni_csrf của phiên hiện tại."
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "required": ["version"],
+                                "properties": {
+                                    "version": {
+                                        "type": "integer",
+                                        "minimum": 1
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Phiên bản mới"
+                    },
+                    "400": {
+                        "description": "Dữ liệu không hợp lệ"
+                    },
+                    "401": {
+                        "description": "Cần đăng nhập"
+                    },
+                    "403": {
+                        "description": "Không đủ quyền hoặc CSRF sai"
+                    },
+                    "409": {
+                        "description": "Đã hết hạn/không chờ duyệt hoặc phiên bản cũ; tải lại"
+                    },
+                    "503": {
+                        "description": "DB/migration chưa sẵn sàng"
+                    }
+                },
+                "security": [
+                    {
+                        "cookieAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/automation/status": {
+            "get": {
+                "summary": "Trạng thái hàng email duyệt bài và lịch sử RPA",
+                "responses": {
+                    "200": {
+                        "description": "Thành công"
+                    },
+                    "401": {
+                        "description": "Cần đăng nhập"
+                    },
+                    "403": {
+                        "description": "Chỉ Admin/Manager"
+                    },
+                    "503": {
+                        "description": "PostgreSQL/RPA chưa sẵn sàng"
+                    }
+                },
+                "security": [
+                    {
+                        "cookieAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/automation/scan-reminders": {
+            "post": {
+                "summary": "Quét nhắc duyệt trước giờ đăng 3 giờ và chờ quá 2 ngày (không gửi email trực tiếp)",
+                "responses": {
+                    "200": {
+                        "description": "Thành công"
+                    },
+                    "401": {
+                        "description": "Cần đăng nhập"
+                    },
+                    "403": {
+                        "description": "Chỉ Admin/Manager"
+                    },
+                    "503": {
+                        "description": "PostgreSQL/RPA chưa sẵn sàng"
+                    }
+                },
+                "security": [
+                    {
+                        "cookieAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/automation/rpa/{kind}": {
+            "post": {
+                "summary": "Chạy Playwright đọc UI và tạo ảnh Dashboard hoặc CSV",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "kind",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "enum": ["dashboard_screenshot", "weekly_csv"]
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Đã tạo artifact trong thư mục RPA"
+                    },
+                    "403": {
+                        "description": "Chỉ Admin/Manager"
+                    },
+                    "409": {
+                        "description": "Đã có tác vụ đang chạy"
+                    },
+                    "503": {
+                        "description": "Chrome hoặc DB chưa sẵn sàng"
+                    }
+                },
+                "security": [
+                    {
+                        "cookieAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/automation/artifacts/{id}/{name}": {
+            "get": {
+                "summary": "Tải artifact RPA đã hoàn tất",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    },
+                    {
+                        "in": "path",
+                        "name": "name",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Ảnh PNG hoặc CSV"
+                    },
+                    "404": {
+                        "description": "Không tìm thấy artifact"
+                    }
+                },
+                "security": [
+                    {
+                        "cookieAuth": []
+                    }
+                ]
             }
         }
     },
@@ -207,6 +2239,43 @@
                                 "comments": {
                                     "type": "array",
                                     "items": {
+                                        "type": "object",
+                                        "required": ["text", "delay"],
+                                        "properties": {
+                                            "text": {
+                                                "type": "string"
+                                            },
+                                            "delay": {
+                                                "type": "string"
+                                            },
+                                            "kind": {
+                                                "type": "string",
+                                                "enum": ["post", "reply"]
+                                            },
+                                            "image": {
+                                                "type": "string"
+                                            }
+                                        }
+                                    }
+                                },
+                                "accountIds": {
+                                    "type": "array",
+                                    "maxItems": 20,
+                                    "items": {
+                                        "type": "string"
+                                    }
+                                },
+                                "timezone": {
+                                    "type": "string"
+                                },
+                                "repeatCount": {
+                                    "type": "integer",
+                                    "minimum": 1,
+                                    "maximum": 30
+                                },
+                                "publishResults": {
+                                    "type": "array",
+                                    "items": {
                                         "type": "object"
                                     }
                                 }
@@ -214,6 +2283,144 @@
                         }
                     ]
                 }
+            },
+            "PublishingItem": {
+                "type": "object",
+                "required": ["content", "kind", "delayMinutes"],
+                "properties": {
+                    "content": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 63206
+                    },
+                    "kind": {
+                        "type": "string",
+                        "enum": ["post", "reply"],
+                        "description": "reply chỉ lưu draft; scheduled trả 422"
+                    },
+                    "delayMinutes": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 10080
+                    },
+                    "image": {
+                        "type": "string",
+                        "description": "Data URL JPG/PNG/WebP/GIF <= 1 MB, xác minh magic bytes"
+                    }
+                }
+            },
+            "PublishingPlan": {
+                "type": "object",
+                "required": ["accountIds", "items", "timezone", "repeat", "status"],
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "description": "ID tạo từ client giúp chống tạo trùng khi gửi lại POST cùng payload"
+                    },
+                    "version": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "Bắt buộc với PUT/cancel"
+                    },
+                    "name": {
+                        "type": "string",
+                        "description": "Tên quản lý nội bộ tùy chọn; để trống hoặc bỏ field sẽ lấy dòng đầu nội dung bài chính.",
+                        "maxLength": 180
+                    },
+                    "accountIds": {
+                        "type": "array",
+                        "maxItems": 20,
+                        "uniqueItems": true,
+                        "items": {
+                            "type": "string",
+                            "pattern": "^facebook:[0-9]+$"
+                        }
+                    },
+                    "items": {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": 10,
+                        "items": {
+                            "$ref": "#/components/schemas/PublishingItem"
+                        }
+                    },
+                    "timezone": {
+                        "type": "string",
+                        "enum": ["Asia/Ho_Chi_Minh", "Asia/Singapore", "UTC"]
+                    },
+                    "scheduledAt": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                    },
+                    "repeat": {
+                        "type": "string",
+                        "enum": ["none", "daily", "weekly"]
+                    },
+                    "repeatCount": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 30
+                    },
+                    "status": {
+                        "type": "string",
+                        "enum": ["draft", "pending", "scheduled", "cancelled"],
+                        "description": "pending: chưa duyệt, quá giờ tự cancelled; scheduled: đã duyệt, nhưng lượt queued quá giờ hơn 2 phút sẽ bị hủy và không được worker đăng muộn. Kế hoạch chỉ cancelled khi mọi lượt phiên bản hiện tại đều hủy. Hủy hoàn toàn phải gửi lại pending với giờ tương lai. Kết quả thực tế nằm trong deliveries."
+                    },
+                    "deliveries": {
+                        "type": "array",
+                        "readOnly": true,
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "id": {
+                                    "type": "string",
+                                    "format": "uuid"
+                                },
+                                "account_id": {
+                                    "type": "string"
+                                },
+                                "item_index": {
+                                    "type": "integer"
+                                },
+                                "occurrence": {
+                                    "type": "integer"
+                                },
+                                "due_at": {
+                                    "type": "string",
+                                    "format": "date-time"
+                                },
+                                "status": {
+                                    "type": "string",
+                                    "enum": [
+                                        "queued",
+                                        "running",
+                                        "published",
+                                        "failed",
+                                        "unknown",
+                                        "cancelled"
+                                    ]
+                                },
+                                "provider_post_id": {
+                                    "type": "string",
+                                    "nullable": true
+                                },
+                                "error": {
+                                    "type": "string",
+                                    "nullable": true
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "securitySchemes": {
+            "cookieAuth": {
+                "type": "apiKey",
+                "in": "cookie",
+                "name": "omni_session"
             }
         }
     }

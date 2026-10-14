@@ -26,20 +26,26 @@ import {
     X
 } from 'lucide-react';
 import { Avatar, Badge, Button, Empty, Modal, Platform, dateLabel, money } from './components.jsx';
-import {
-    Analytics,
-    Calendar,
-    Dashboard,
-    EntityPage,
-    InboxPage,
-    RankCheck,
-    Workflows
-} from './pages.jsx';
+import { Analytics, Dashboard, EntityPage, InboxPage, RankCheck, Workflows } from './pages.jsx';
 import Composer from './Composer.jsx';
+import PublishingCalendar from './PublishingCalendar.jsx';
+import { Connections, SocialPosts, socialRequest } from './Social.jsx';
+import { apiFetch } from './Auth.jsx';
+import Administration from './Administration.jsx';
 
 export const Workspace = createContext(null);
 export const useWorkspace = () => useContext(Workspace);
 export const navigation = [
+    { id: 'history', label: 'Lịch sử hoạt động', icon: Activity, group: 'QUẢN TRỊ' },
+    { id: 'team', label: 'Thành viên & phân quyền', icon: ShieldCheck },
+    { id: 'data', label: 'Dữ liệu chức năng', icon: Settings2 },
+    {
+        id: 'connections',
+        label: 'Liên kết tài khoản',
+        icon: Link2,
+        group: 'KẾT NỐI',
+        description: 'Danh tính thật. Quyền truy cập rõ ràng.'
+    },
     {
         id: 'dashboard',
         label: 'Tổng quan',
@@ -185,7 +191,7 @@ const schema = {
         ['name', 'Từ khóa'],
         ['url', 'Trang đích'],
         ['platform', 'Công cụ tìm kiếm', ['Google']],
-        ['volume', 'Lượt tìm kiếm / tháng (demo)', 'number']
+        ['volume', 'Lượt tìm kiếm / tháng (tự ghi nhận)', 'number']
     ],
     competitors: [
         ['name', 'Tên đối thủ'],
@@ -194,14 +200,43 @@ const schema = {
     ]
 };
 const collectionFor = (id) => ({ rankings: 'keywords' })[id] || id;
-export default function App() {
+export default function App({ user, onLogout }) {
     const [page, setPage] = useState(() => location.hash.slice(1) || 'dashboard');
-    const [data, setData] = useState(window.Omni.seed());
+    const [data, setData] = useState(window.Omni.emptyWorkspace());
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [mode, setMode] = useState('demo');
     const [version, setVersion] = useState(0);
     const [saving, setSaving] = useState(false);
+    const [social, setSocial] = useState({
+        accounts: [],
+        providers: window.Omni.platforms.map((name) => ({ name, supported: name === 'Facebook' })),
+        oauthConfigured: false
+    });
+    const [socialLoading, setSocialLoading] = useState(true);
+    const [socialError, setSocialError] = useState('');
+    const [socialRevision, setSocialRevision] = useState(0);
+    const [activeSocialAccountId, selectSocialAccount] = useState('');
+    async function refreshSocial() {
+        setSocialLoading(true);
+        setSocialError('');
+        try {
+            setSocial(await socialRequest('/api/social/accounts'));
+            setSocialRevision((revision) => revision + 1);
+        } catch (e) {
+            setSocialError(e.message);
+            setSocial((current) => ({
+                ...current,
+                accounts: current.accounts.map((a) => ({
+                    ...a,
+                    canPublish: false,
+                    status: 'needs_reconnect'
+                }))
+            }));
+        } finally {
+            setSocialLoading(false);
+        }
+    }
     const [modal, setModal] = useState(null);
     const [mobile, setMobile] = useState(false);
     const [toast, setToast] = useState('');
@@ -215,10 +250,12 @@ export default function App() {
         setError('');
         try {
             if (forceDemo) {
-                setData(window.Omni.load(localStorage));
+                const local = window.Omni.load(localStorage);
+                window.Omni.save(localStorage, local);
+                setData(local);
                 setMode('demo');
             } else {
-                const response = await fetch('/api/workspace');
+                const response = await apiFetch('/api/workspace');
                 if (!response.ok)
                     throw new Error(
                         'Không thể tải dữ liệu máy chủ. Kiểm tra kết nối PostgreSQL hoặc thử lại.'
@@ -226,7 +263,15 @@ export default function App() {
                 const body = await response.json();
                 setMode(body.mode);
                 setVersion(body.version || 0);
-                setData(body.mode === 'postgres' ? body.data : window.Omni.load(localStorage));
+                const original =
+                    body.mode === 'postgres' ? body.data : window.Omni.load(localStorage);
+                // Server records are authoritative. Cleanup applies only to legacy browser demo.
+                const cleaned =
+                    body.mode === 'postgres' ? original : window.Omni.withoutDemo(original);
+                if (!window.Omni.validWorkspace(cleaned))
+                    throw new Error('Dữ liệu máy chủ không hợp lệ. Dữ liệu chưa bị thay đổi.');
+                setData(cleaned);
+                if (body.mode !== 'postgres') window.Omni.save(localStorage, cleaned);
             }
         } catch (e) {
             setError(e.message);
@@ -236,6 +281,7 @@ export default function App() {
     }
     useEffect(() => {
         load();
+        refreshSocial();
     }, []);
     useEffect(() => {
         const handler = () => {
@@ -270,12 +316,22 @@ export default function App() {
         setMobile(false);
     }
     async function update(next, message = 'Đã lưu thay đổi') {
+        if (user.role === 'viewer') {
+            setToast('Tài khoản chỉ có quyền xem dữ liệu.');
+            return false;
+        }
+        if (error || loading) {
+            setToast(
+                'Chưa tải được workspace. Mở dữ liệu cục bộ hoặc kết nối lại PostgreSQL trước khi lưu.'
+            );
+            return false;
+        }
         if (lock.current) return false;
         lock.current = true;
         setSaving(true);
         try {
             if (mode === 'postgres') {
-                const response = await fetch('/api/workspace', {
+                const response = await apiFetch('/api/workspace', {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ data: next, version })
@@ -300,20 +356,44 @@ export default function App() {
         }
     }
     function edit(kind, row) {
+        if (user.role === 'viewer') {
+            setToast('Tài khoản chỉ có quyền xem.');
+            return;
+        }
         setModal({ type: 'entity', kind, row });
     }
     function remove(kind, ids) {
+        if (user.role === 'viewer') {
+            setToast('Tài khoản chỉ có quyền xem.');
+            return;
+        }
         setModal({ type: 'delete', kind: collectionFor(kind), ids });
     }
     function compose(post) {
+        if (user.role === 'viewer') {
+            setToast('Tài khoản chỉ có quyền xem.');
+            return;
+        }
         setModal({ type: 'compose', post });
     }
     const context = {
+        user,
+        version,
+        reloadWorkspace: () => load(),
         data,
         mode,
         period,
         platform,
         saving,
+        social,
+        socialLoading,
+        socialError,
+        refreshSocial,
+        socialRevision,
+        activeSocialAccountId,
+        selectSocialAccount,
+        workspaceError: error,
+        useLocalWorkspace: () => load(true),
         update,
         navigate,
         edit,
@@ -359,30 +439,34 @@ export default function App() {
                     <ChevronDown size={16} />
                 </button>
                 <nav aria-label="Điều hướng chính">
-                    {navigation.map((item) => (
-                        <React.Fragment key={item.id}>
-                            {item.group && <p className="nav-group">{item.group}</p>}
-                            <a
-                                href={`#${item.id}`}
-                                className={current.id === item.id ? 'nav-link active' : 'nav-link'}
-                                aria-current={current.id === item.id ? 'page' : undefined}
-                                title={item.label}
-                            >
-                                <item.icon size={18} />
-                                <span>{item.label}</span>
-                                {item.id === 'chat' && (
-                                    <span className="nav-count">
-                                        {
-                                            data.conversations.filter(
-                                                (c) => c.status === 'Chưa xử lý'
-                                            ).length
-                                        }
-                                    </span>
-                                )}
-                                {item.id === 'calendar' && <span className="new-dot" />}
-                            </a>
-                        </React.Fragment>
-                    ))}
+                    {navigation
+                        .filter((item) => item.id !== 'team' || user.role === 'admin')
+                        .map((item) => (
+                            <React.Fragment key={item.id}>
+                                {item.group && <p className="nav-group">{item.group}</p>}
+                                <a
+                                    href={`#${item.id}`}
+                                    className={
+                                        current.id === item.id ? 'nav-link active' : 'nav-link'
+                                    }
+                                    aria-current={current.id === item.id ? 'page' : undefined}
+                                    title={item.label}
+                                >
+                                    <item.icon size={18} />
+                                    <span>{item.label}</span>
+                                    {item.id === 'chat' && (
+                                        <span className="nav-count">
+                                            {
+                                                data.conversations.filter(
+                                                    (c) => c.status === 'Chưa xử lý'
+                                                ).length
+                                            }
+                                        </span>
+                                    )}
+                                    {item.id === 'calendar' && <span className="new-dot" />}
+                                </a>
+                            </React.Fragment>
+                        ))}
                 </nav>
                 <div className="sidebar-bottom">
                     <button className="nav-link" onClick={() => setModal({ type: 'settings' })}>
@@ -394,10 +478,10 @@ export default function App() {
                         Trợ giúp & tài liệu
                     </button>
                     <div className="sidebar-profile">
-                        <Avatar name="Linh Nguyễn" />
+                        <Avatar name={user.name} />
                         <span>
-                            <strong>Linh Nguyễn</strong>
-                            <small>Quản trị viên · Demo</small>
+                            <strong>{user.name}</strong>
+                            <small>{user.role}</small>
                         </span>
                         <span className="online-dot" />
                     </div>
@@ -437,10 +521,17 @@ export default function App() {
                             <Bell size={19} />
                             <i />
                         </button>
-                        <Avatar name="Linh Nguyễn" size="small" />
+                        <Avatar name={user.name} size="small" />
+                        <Button onClick={onLogout}>Đăng xuất</Button>
                     </div>
                 </header>
-                <main id="main" tabIndex="-1">
+                <main
+                    id="main"
+                    tabIndex="-1"
+                    className={
+                        ['posts', 'calendar'].includes(current.id) ? 'publishing-workspace' : ''
+                    }
+                >
                     <div className="page-head">
                         <div>
                             <div className="eyebrow">OMNICHANNEL MARKETING</div>
@@ -484,21 +575,24 @@ export default function App() {
                         <span>
                             {mode === 'postgres'
                                 ? 'PostgreSQL · Dữ liệu đã lưu trên máy chủ'
-                                : 'Không gian demo · Dữ liệu minh họa, lưu trên trình duyệt'}
+                                : 'Lưu cục bộ · Chưa kết nối PostgreSQL, không có dữ liệu mẫu'}
                         </span>
                         <span className="mode-tail">UTC+7 · Asia/Ho_Chi_Minh</span>
                     </div>
-                    {error ? (
+                    {['history', 'team', 'data'].includes(current.id) ? (
+                        <Administration key={current.id} kind={current.id} />
+                    ) : ['connections', 'accounts', 'channels'].includes(current.id) ? (
+                        <Connections />
+                    ) : current.id === 'posts' ? (
+                        <SocialPosts />
+                    ) : error ? (
                         <div className="error-panel" role="alert">
                             <ShieldCheck size={28} />
                             <h2>Chưa thể tải không gian làm việc</h2>
                             <p>{error}</p>
                             <div>
                                 <Button onClick={() => load()}>Thử lại</Button>
-                                <Button onClick={() => load(true)}>Mở bản demo local</Button>
-                                <Button kind="danger" onClick={() => setModal({ type: 'reset' })}>
-                                    Khôi phục dữ liệu demo
-                                </Button>
+                                <Button onClick={() => load(true)}>Mở dữ liệu cục bộ</Button>
                             </div>
                         </div>
                     ) : loading ? (
@@ -518,7 +612,7 @@ export default function App() {
                     ) : current.id === 'dashboard' ? (
                         <Dashboard />
                     ) : current.id === 'calendar' ? (
-                        <Calendar />
+                        <PublishingCalendar />
                     ) : current.id === 'chat' ? (
                         <InboxPage />
                     ) : current.id === 'rankCheck' ? (
@@ -557,7 +651,6 @@ export default function App() {
                         {
                             search: 'Tìm kiếm trong không gian',
                             delete: 'Xóa các mục đã chọn?',
-                            reset: 'Khôi phục dữ liệu demo?',
                             detail: 'Thông tin chi tiết',
                             settings: 'Cài đặt không gian',
                             help: 'Trung tâm trợ giúp',
@@ -598,36 +691,6 @@ export default function App() {
                                     {saving ? 'Đang xóa…' : 'Xác nhận xóa'}
                                 </Button>
                             </div>
-                        </div>
-                    ) : modal.type === 'reset' ? (
-                        <div className="dialog-body">
-                            <p>
-                                Thay thế dữ liệu trong không gian hiện tại bằng bộ dữ liệu demo ban
-                                đầu? Các thay đổi quản trị của bạn sẽ bị mất.
-                            </p>
-                            <Button
-                                kind="danger"
-                                disabled={saving}
-                                onClick={async () => {
-                                    if (error) {
-                                        try {
-                                            window.Omni.save(localStorage, window.Omni.seed());
-                                            setModal(null);
-                                            load(true);
-                                        } catch {
-                                            setToast('Không thể ghi vào bộ nhớ trình duyệt.');
-                                        }
-                                    } else if (
-                                        await update(
-                                            window.Omni.seed(),
-                                            'Đã khôi phục dữ liệu demo'
-                                        )
-                                    )
-                                        setModal(null);
-                                }}
-                            >
-                                Khôi phục
-                            </Button>
                         </div>
                     ) : modal.type === 'detail' ? (
                         <div className="dialog-body detail-list">
@@ -676,21 +739,6 @@ export default function App() {
                     ) : modal.type === 'notifications' ? (
                         <div className="dialog-body">
                             <div className="notice-item">
-                                <Link2 />
-                                <div>
-                                    <strong>YouTube cần kết nối lại</strong>
-                                    <p>Kiểm tra tài khoản Hoàng Nam trong danh sách kênh (demo).</p>
-                                    <Button
-                                        onClick={() => {
-                                            navigate('channels');
-                                            setModal(null);
-                                        }}
-                                    >
-                                        Xem kênh
-                                    </Button>
-                                </div>
-                            </div>
-                            <div className="notice-item">
                                 <MessageSquare />
                                 <div>
                                     <strong>
@@ -717,20 +765,16 @@ export default function App() {
                         <div className="dialog-body">
                             <div className="settings-row">
                                 <span>Nguồn lưu dữ liệu</span>
-                                <Badge value={mode === 'postgres' ? 'PostgreSQL' : 'Demo local'} />
+                                <Badge value={mode === 'postgres' ? 'PostgreSQL' : 'Cục bộ'} />
                             </div>
                             <div className="settings-row">
                                 <span>Múi giờ</span>
                                 <strong>Asia/Ho_Chi_Minh (UTC+7)</strong>
                             </div>
                             <p className="hint">
-                                Các chỉ số báo cáo và kết nối kênh hiện là dữ liệu minh họa.
-                                PostgreSQL lưu dữ liệu quản trị; chưa có đồng bộ chỉ số từ nhà cung
-                                cấp.
+                                PostgreSQL lưu dữ liệu quản trị, lịch sử và số liệu đã ghi nhận. Chỉ
+                                số chưa tự đồng bộ từ nhà cung cấp.
                             </p>
-                            <Button kind="danger" onClick={() => setModal({ type: 'reset' })}>
-                                Khôi phục dữ liệu demo
-                            </Button>
                         </div>
                     ) : modal.type === 'workspace' ? (
                         <div className="dialog-body">
@@ -746,8 +790,8 @@ export default function App() {
                                 <ShieldCheck color="#6f5ec5" />
                             </div>
                             <p className="hint">
-                                Một không gian prototype. Phân quyền và đa tenant chưa được tích
-                                hợp.
+                                Workspace chung với phân quyền thành viên. Vai trò hiện tại:{' '}
+                                {user.role}.
                             </p>
                         </div>
                     ) : (
@@ -775,9 +819,9 @@ export default function App() {
                                 Tải collection Postman
                             </a>
                             <p className="hint">
-                                Kết nối nền tảng, hội thoại và thứ hạng là demo. Bài lên lịch chỉ
-                                được lưu; chưa có worker tự đăng. Nút đăng Facebook thật trong trình
-                                soạn bài sử dụng API hiện có và cần cấu hình token trên máy chủ.
+                                Dữ liệu nội bộ và lịch sử được lưu PostgreSQL. Facebook có adapter
+                                thật; worker đăng theo lịch là tiến trình riêng opt-in. Các nền tảng
+                                khác, SERP và gửi chat cần adapter tương ứng.
                             </p>
                         </div>
                     )}
@@ -846,13 +890,13 @@ function EntityEditor({ kind, row, onClose }) {
         name: '',
         platform: 'Facebook',
         status: 'Bản nháp',
-        owner: 'Linh Nguyễn',
+        owner: 'Người dùng cục bộ',
         email: '',
         url: '',
         budget: 0,
         followers: 0,
         start: window.Omni.today,
-        end: '2026-10-31',
+        end: window.Omni.today,
         rank: 0,
         previous: 0,
         volume: 0,

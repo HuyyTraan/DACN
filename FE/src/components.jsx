@@ -42,16 +42,28 @@ export function Platform({ name, small = false }) {
                     Google: 'G',
                     TikTok: '♪',
                     YouTube: '▶',
-                    Zalo: 'Z'
+                    Zalo: 'Z',
+                    LinkedIn: 'in',
+                    X: '𝕏'
                 }[name] || '•'}
             </span>
             {!small && name}
         </span>
     );
 }
-export function Avatar({ name, size = '', tone = 0 }) {
+export function Avatar({ name, src, size = '', tone = 0 }) {
     return (
         <span className={`avatar ${size} tone-${tone % 4}`} aria-hidden="true">
+            {src && /^https:\/\//.test(src) && (
+                <img
+                    src={src}
+                    alt=""
+                    referrerPolicy="no-referrer"
+                    onError={(e) => {
+                        e.currentTarget.style.display = 'none';
+                    }}
+                />
+            )}
             {name
                 .split(' ')
                 .slice(-2)
@@ -65,7 +77,7 @@ export function Badge({ value }) {
         ? 'green'
         : /nháp|Tạm dừng/.test(value)
           ? 'gray'
-          : /lại|Lỗi/.test(value)
+          : /lại|Lỗi|Đã hủy/.test(value)
             ? 'red'
             : /duyệt|Tiềm năng|Chưa/.test(value)
               ? 'amber'
@@ -236,7 +248,7 @@ export function LineChart({ period = 'month', platform = '', compare = false }) 
         </div>
     );
 }
-export function Modal({ title, children, onClose, wide = false }) {
+export function Modal({ title, children, onClose, wide = false, className = '' }) {
     const ref = useRef(null);
     useEffect(() => {
         const previous = document.activeElement;
@@ -249,7 +261,7 @@ export function Modal({ title, children, onClose, wide = false }) {
         <dialog
             ref={ref}
             aria-labelledby="dialog-title"
-            className={wide ? 'wide' : ''}
+            className={`${wide ? 'wide' : ''} ${className}`.trim()}
             onCancel={(event) => {
                 event.preventDefault();
                 onClose();

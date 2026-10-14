@@ -1,0 +1,99 @@
+{
+    "name": "Omni Studio · Approval email (configure SMTP before activation)",
+    "active": false,
+    "nodes": [
+        {
+            "id": "schedule",
+            "name": "Every five minutes",
+            "type": "n8n-nodes-base.scheduleTrigger",
+            "typeVersion": 1.2,
+            "position": [240, 300],
+            "parameters": {
+                "rule": {
+                    "interval": [
+                        {
+                            "field": "minutes",
+                            "minutesInterval": 5
+                        }
+                    ]
+                }
+            }
+        },
+        {
+            "id": "claim",
+            "name": "Queue reminders and claim email",
+            "type": "n8n-nodes-base.postgres",
+            "typeVersion": 2.5,
+            "position": [500, 300],
+            "parameters": {
+                "operation": "executeQuery",
+                "query": "WITH reminders AS (INSERT INTO studio_automation_messages(plan_id,plan_version,recipient_user_id,recipient_email,kind) SELECT p.id,p.version,u.id,u.email,r.kind FROM publishing_plans p CROSS JOIN LATERAL (VALUES ('approval_due_soon',(p.payload->>'scheduledAt')::timestamptz<=now()+interval '3 hours'),('approval_overdue',p.updated_at<=now()-interval '2 days')) r(kind,due) JOIN studio_users u ON u.workspace_id=1 AND u.active AND u.role IN ('admin','manager') AND u.email !~* '\\.test$' WHERE p.status='pending' AND (p.payload->>'scheduledAt')::timestamptz>now() AND r.due ON CONFLICT DO NOTHING), stale AS (UPDATE studio_automation_messages m SET status='cancelled' WHERE m.status='queued' AND NOT EXISTS (SELECT 1 FROM publishing_plans p WHERE p.id=m.plan_id AND p.version=m.plan_version AND p.status='pending') RETURNING m.id), claimed AS (UPDATE studio_automation_messages m SET status='sending',claimed_at=now() WHERE m.id IN (SELECT q.id FROM studio_automation_messages q JOIN publishing_plans p ON p.id=q.plan_id AND p.version=q.plan_version AND p.status='pending' WHERE q.status='queued' AND q.recipient_email !~* '\\.test$' AND (p.payload->>'scheduledAt')::timestamptz>now() ORDER BY q.created_at FOR UPDATE OF q SKIP LOCKED LIMIT 20) RETURNING m.id,m.kind,m.recipient_email,m.plan_id) SELECT c.id,c.kind,c.recipient_email,c.plan_id,p.payload->>'name' AS plan_name,p.payload->>'scheduledAt' AS scheduled_at FROM claimed c JOIN publishing_plans p ON p.id=c.plan_id"
+            }
+        },
+        {
+            "id": "email",
+            "name": "Send approval email",
+            "type": "n8n-nodes-base.emailSend",
+            "typeVersion": 2.1,
+            "position": [760, 300],
+            "parameters": {
+                "fromEmail": "Omni Studio <configure-smtp-sender@example.com>",
+                "toEmail": "={{ $json.recipient_email }}",
+                "subject": "={{ $json.kind === 'approval_requested' ? 'Bài viết cần duyệt: ' + $json.plan_name : 'Nhắc duyệt bài viết: ' + $json.plan_name }}",
+                "emailType": "text",
+                "text": "={{ 'Bài viết: ' + $json.plan_name + '\nThời gian dự kiến (UTC): ' + $json.scheduled_at + '\nMở Omni Studio → Lịch nội dung → Chưa duyệt để xem và duyệt.\nMã kế hoạch: ' + $json.plan_id }}"
+            }
+        },
+        {
+            "id": "sent",
+            "name": "Mark email sent",
+            "type": "n8n-nodes-base.postgres",
+            "typeVersion": 2.5,
+            "position": [1020, 300],
+            "parameters": {
+                "operation": "executeQuery",
+                "query": "UPDATE studio_automation_messages SET status='sent',sent_at=now() WHERE id='{{ $('Queue reminders and claim email').item.json.id }}'::uuid AND status='sending' RETURNING id"
+            }
+        }
+    ],
+    "connections": {
+        "Every five minutes": {
+            "main": [
+                [
+                    {
+                        "node": "Queue reminders and claim email",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Queue reminders and claim email": {
+            "main": [
+                [
+                    {
+                        "node": "Send approval email",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Send approval email": {
+            "main": [
+                [
+                    {
+                        "node": "Mark email sent",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        }
+    },
+    "settings": {
+        "executionOrder": "v1",
+        "timezone": "Asia/Ho_Chi_Minh"
+    },
+    "pinData": {}
+}

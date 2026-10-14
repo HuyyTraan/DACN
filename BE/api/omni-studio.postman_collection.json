@@ -4,11 +4,436 @@
         "description": "Health và workspace là read-only. Request đăng Facebook thật không nằm trong collection để tránh đăng nhầm khi chạy Collection Runner. Dùng Swagger và duyệt nội dung trước khi gọi endpoint publish.",
         "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
     },
-    "variable": [{ "key": "baseUrl", "value": "http://localhost:3000" }],
+    "variable": [
+        {
+            "key": "baseUrl",
+            "value": "http://localhost:3000"
+        },
+        {
+            "key": "accountId",
+            "value": "",
+            "type": "string"
+        }
+    ],
     "item": [
         {
+            "name": "Authentication and durable database",
+            "item": [
+                {
+                    "name": "Session / first admin status",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "X-CSRF-Token",
+                                "value": "{{csrf}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/auth/session",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["api", "auth", "session"]
+                        }
+                    }
+                },
+                {
+                    "name": "Bootstrap first admin (replace fields; once)",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "X-CSRF-Token",
+                                "value": "{{csrf}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/auth/bootstrap",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["api", "auth", "bootstrap"]
+                        },
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"name\": \"Your name\",\n  \"email\": \"admin@example.test\",\n  \"password\": \"Replace with your own password\"\n}"
+                        }
+                    }
+                },
+                {
+                    "name": "Login",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "X-CSRF-Token",
+                                "value": "{{csrf}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/auth/login",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["api", "auth", "login"]
+                        },
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"email\": \"admin@example.test\",\n  \"password\": \"Replace with your own password\"\n}"
+                        }
+                    }
+                },
+                {
+                    "name": "Users (admin)",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "X-CSRF-Token",
+                                "value": "{{csrf}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/auth/users",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["api", "auth", "users"]
+                        }
+                    }
+                },
+                {
+                    "name": "Activity history",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "X-CSRF-Token",
+                                "value": "{{csrf}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/history",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["api", "history"]
+                        }
+                    }
+                },
+                {
+                    "name": "Snapshots",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "X-CSRF-Token",
+                                "value": "{{csrf}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/snapshots",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["api", "snapshots"]
+                        }
+                    }
+                },
+                {
+                    "name": "Database aggregates",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "X-CSRF-Token",
+                                "value": "{{csrf}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/dashboard",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["api", "dashboard"]
+                        }
+                    }
+                },
+                {
+                    "name": "Read workflows",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "X-CSRF-Token",
+                                "value": "{{csrf}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/records/workflows",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["api", "records", "workflows"]
+                        }
+                    }
+                },
+                {
+                    "name": "Read workflowRuns",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "X-CSRF-Token",
+                                "value": "{{csrf}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/records/workflowRuns",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["api", "records", "workflowRuns"]
+                        }
+                    }
+                },
+                {
+                    "name": "Read metrics",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "X-CSRF-Token",
+                                "value": "{{csrf}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/records/metrics",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["api", "records", "metrics"]
+                        }
+                    }
+                },
+                {
+                    "name": "Read traffic",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "X-CSRF-Token",
+                                "value": "{{csrf}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/records/traffic",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["api", "records", "traffic"]
+                        }
+                    }
+                },
+                {
+                    "name": "Read reports",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "X-CSRF-Token",
+                                "value": "{{csrf}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/records/reports",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["api", "records", "reports"]
+                        }
+                    }
+                },
+                {
+                    "name": "Read media",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "X-CSRF-Token",
+                                "value": "{{csrf}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/records/media",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["api", "records", "media"]
+                        }
+                    }
+                },
+                {
+                    "name": "Read notifications",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "X-CSRF-Token",
+                                "value": "{{csrf}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/records/notifications",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["api", "records", "notifications"]
+                        }
+                    }
+                },
+                {
+                    "name": "Read settings",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "X-CSRF-Token",
+                                "value": "{{csrf}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/records/settings",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["api", "records", "settings"]
+                        }
+                    }
+                },
+                {
+                    "name": "Read tags",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "X-CSRF-Token",
+                                "value": "{{csrf}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/records/tags",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["api", "records", "tags"]
+                        }
+                    }
+                },
+                {
+                    "name": "Read approvals",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "X-CSRF-Token",
+                                "value": "{{csrf}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/records/approvals",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["api", "records", "approvals"]
+                        }
+                    }
+                },
+                {
+                    "name": "Read socialAccounts",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "X-CSRF-Token",
+                                "value": "{{csrf}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/records/socialAccounts",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["api", "records", "socialAccounts"]
+                        }
+                    }
+                },
+                {
+                    "name": "Logout",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "X-CSRF-Token",
+                                "value": "{{csrf}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/auth/logout",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["api", "auth", "logout"]
+                        }
+                    }
+                }
+            ]
+        },
+        {
             "name": "Health",
-            "request": { "method": "GET", "url": "{{baseUrl}}/api/health" },
+            "request": {
+                "method": "GET",
+                "url": "{{baseUrl}}/api/health"
+            },
             "event": [
                 {
                     "listen": "test",
@@ -24,7 +449,10 @@
         },
         {
             "name": "Workspace",
-            "request": { "method": "GET", "url": "{{baseUrl}}/api/workspace" },
+            "request": {
+                "method": "GET",
+                "url": "{{baseUrl}}/api/workspace"
+            },
             "event": [
                 {
                     "listen": "test",
@@ -40,14 +468,25 @@
         },
         {
             "name": "OpenAPI schema",
-            "request": { "method": "GET", "url": "{{baseUrl}}/api/openapi.json" }
+            "request": {
+                "method": "GET",
+                "url": "{{baseUrl}}/api/openapi.json"
+            }
         },
         {
             "name": "Facebook validation (không đăng)",
             "request": {
                 "method": "POST",
-                "header": [{ "key": "Content-Type", "value": "application/json" }],
-                "body": { "mode": "raw", "raw": "{\"noiDungBaiViet\":\"\"}" },
+                "header": [
+                    {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                    }
+                ],
+                "body": {
+                    "mode": "raw",
+                    "raw": "{\"noiDungBaiViet\":\"\"}"
+                },
                 "url": "{{baseUrl}}/api/publish/facebook"
             },
             "event": [
@@ -61,6 +500,119 @@
                     }
                 }
             ]
+        },
+        {
+            "name": "Connected social accounts",
+            "request": {
+                "method": "GET",
+                "header": [],
+                "url": "{{baseUrl}}/api/social/accounts"
+            },
+            "response": []
+        },
+        {
+            "name": "Posts on connected Page",
+            "request": {
+                "method": "GET",
+                "header": [],
+                "url": "{{baseUrl}}/api/social/accounts/{{accountId}}/posts"
+            },
+            "response": []
+        },
+        {
+            "name": "Publishing plans",
+            "item": [
+                {
+                    "name": "Publishing readiness",
+                    "request": {
+                        "method": "GET",
+                        "url": "{{baseUrl}}/api/publishing/status"
+                    }
+                },
+                {
+                    "name": "List publishing plans",
+                    "request": {
+                        "method": "GET",
+                        "url": "{{baseUrl}}/api/publishing/plans?limit=50&offset=0"
+                    }
+                },
+                {
+                    "name": "Create draft plan (does not publish)",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": "{{baseUrl}}/api/publishing/plans",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"name\": \"Bản soạn\",\n  \"status\": \"draft\",\n  \"accountIds\": [],\n  \"items\": [\n    {\n      \"content\": \"Nội dung thử lưu nháp\",\n      \"kind\": \"post\",\n      \"delayMinutes\": 0\n    }\n  ],\n  \"timezone\": \"Asia/Ho_Chi_Minh\",\n  \"repeat\": \"none\",\n  \"repeatCount\": 1,\n  \"scheduledAt\": \"2099-01-01T02:00:00Z\"\n}"
+                        }
+                    }
+                }
+            ]
+        },
+        {
+            "name": "Approval workflow",
+            "description": "Chỉ chạy từng request có chủ đích trên DB local. Không chạy toàn collection; approve có thể tạo hàng đợi đăng nếu worker được bật.",
+            "item": [
+                {
+                    "name": "Approve pending plan (Admin/Manager)",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "X-CSRF-Token",
+                                "value": "{{csrfToken}}"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{ \"version\": 1 }"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/api/publishing/plans/{{planId}}/approve",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["api", "publishing", "plans", "{{planId}}", "approve"]
+                        }
+                    }
+                }
+            ]
+        },
+        {
+            "name": "Automation (read-only)",
+            "item": [
+                {
+                    "name": "Automation status",
+                    "request": {
+                        "method": "GET",
+                        "url": {
+                            "raw": "{{baseUrl}}/api/automation/status",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["api", "automation", "status"]
+                        }
+                    }
+                }
+            ]
+        }
+    ],
+    "event": [
+        {
+            "listen": "test",
+            "script": {
+                "type": "text/javascript",
+                "exec": [
+                    "const header = pm.response.headers.all().find(h => h.key.toLowerCase() === 'set-cookie' && h.value.startsWith('omni_csrf='));",
+                    "if (header) pm.collectionVariables.set('csrf', header.value.split(';')[0].split('=')[1]);"
+                ]
+            }
         }
     ]
 }

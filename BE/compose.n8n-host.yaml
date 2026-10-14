@@ -1,0 +1,15 @@
+name: dacn-n8n-host
+services:
+    n8n:
+        image: docker.n8n.io/n8nio/n8n:latest
+        ports:
+            - '127.0.0.1:5678:5678'
+        environment:
+            N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:?Set N8N_ENCRYPTION_KEY in BE/.env}
+            GENERIC_TIMEZONE: Asia/Ho_Chi_Minh
+            TZ: Asia/Ho_Chi_Minh
+            N8N_SECURE_COOKIE: 'false'
+        volumes:
+            - n8n_host_data:/home/node/.n8n
+volumes:
+    n8n_host_data:

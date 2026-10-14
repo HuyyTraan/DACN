@@ -33,6 +33,9 @@ import {
     X
 } from 'lucide-react';
 import { useWorkspace } from './App.jsx';
+import Administration from './Administration.jsx';
+import DatabaseAnalytics, { StoredTrend } from './DatabaseAnalytics.jsx';
+import { authRequest } from './Auth.jsx';
 import {
     Avatar,
     Badge,
@@ -42,6 +45,7 @@ import {
     LineChart,
     Metric,
     Panel,
+    Modal,
     Platform,
     Progress,
     compact,
@@ -277,9 +281,9 @@ const columns = {
     ]
 };
 export function Dashboard() {
-    const { data, period, platform, navigate, compose, view } = useWorkspace();
+    const { data, period, platform, navigate, compose, view, user } = useWorkspace();
     const active = data.campaigns.filter((c) => c.status === 'Đang chạy');
-    const ratio = period === 'week' ? 0.26 : 1;
+    const ratio = 1;
     const reach = data.campaigns.reduce((sum, c) => sum + c.reach, 0) * ratio;
     const spent = data.campaigns.reduce((sum, c) => sum + c.spent, 0) * ratio;
     const leads = Math.round(data.campaigns.reduce((sum, c) => sum + c.leads, 0) * ratio);
@@ -288,7 +292,7 @@ export function Dashboard() {
             <div className="welcome-strip">
                 <div>
                     <span className="welcome-label">
-                        <span className="sun-symbol">✳</span> CHÀO LINH, NGÀY MỚI TỐT LÀNH
+                        <span className="sun-symbol">✳</span> CHÀO {user.name}, NGÀY MỚI TỐT LÀNH
                     </span>
                     <h2>
                         Những kết nối nhỏ.
@@ -324,32 +328,27 @@ export function Dashboard() {
                 </div>
             </div>
             <div className="metrics">
-                <Metric
-                    label="Tổng lượt tiếp cận"
-                    value={compact(reach)}
-                    delta="+18,6%"
-                    icon={Eye}
-                />
+                <Metric label="Tổng lượt tiếp cận" value={compact(reach)} delta="" icon={Eye} />
                 <Metric
                     label="Tương tác nội dung"
                     value={number(
                         Math.round(data.posts.reduce((s, p) => s + p.engagement, 0) * ratio)
                     )}
-                    delta="+12,8%"
+                    delta=""
                     icon={Heart}
                     tone="rose"
                 />
                 <Metric
                     label="Khách hàng tiềm năng"
                     value={number(leads)}
-                    delta="+8,2%"
+                    delta=""
                     icon={Users}
                     tone="mint"
                 />
                 <Metric
                     label="Ngân sách đã chi"
                     value={compact(spent) + ' ₫'}
-                    delta="-4,3%"
+                    delta=""
                     icon={Wallet}
                     tone="sand"
                     note="so với kế hoạch demo"
@@ -372,11 +371,11 @@ export function Dashboard() {
                         </div>
                     }
                 >
-                    <LineChart period={period} platform={platform} />
+                    <StoredTrend />
                     <div className="chart-foot">
                         <span>
                             <TrendingUp size={15} />
-                            Tiếp cận tăng đều trong kỳ demo
+                            Số liệu được ghi nhận trong database
                         </span>
                         <button className="text-link" onClick={() => navigate('traffic')}>
                             Xem phân tích
@@ -638,14 +637,14 @@ export function EntityPage({ kind }) {
                     <Metric
                         label="Chiến dịch đang chạy"
                         value={raw.filter((c) => c.status === 'Đang chạy').length}
-                        delta="Đang hoạt động"
+                        delta=""
                         note="trong không gian"
                         icon={Megaphone}
                     />
                     <Metric
                         label="Tổng ngân sách"
                         value={compact(raw.reduce((s, c) => s + c.budget, 0)) + ' ₫'}
-                        delta="Kế hoạch"
+                        delta=""
                         note="cho tất cả chiến dịch"
                         icon={Wallet}
                         tone="sand"
@@ -653,7 +652,7 @@ export function EntityPage({ kind }) {
                     <Metric
                         label="Khách hàng tiềm năng"
                         value={number(raw.reduce((s, c) => s + c.leads, 0))}
-                        delta="+8,2%"
+                        delta=""
                         icon={Users}
                         tone="mint"
                     />
@@ -664,14 +663,14 @@ export function EntityPage({ kind }) {
                     <Metric
                         label="Từ khóa theo dõi"
                         value={raw.length}
-                        delta="Google"
+                        delta=""
                         note="dữ liệu demo"
                         icon={Search}
                     />
                     <Metric
                         label="Từ khóa trong Top 10"
                         value={raw.filter((k) => k.rank > 0 && k.rank <= 10).length}
-                        delta="Hiển thị tốt"
+                        delta=""
                         note="trong tìm kiếm demo"
                         icon={TrendingUp}
                         tone="mint"
@@ -679,7 +678,7 @@ export function EntityPage({ kind }) {
                     <Metric
                         label="Từ khóa tăng hạng"
                         value={raw.filter((k) => k.previous > k.rank && k.rank > 0).length}
-                        delta="Xu hướng tích cực"
+                        delta=""
                         note="so với kỳ trước"
                         icon={ArrowUpRight}
                         tone="sand"
@@ -724,7 +723,14 @@ export function EntityPage({ kind }) {
                     columns={columns[kind]}
                     tabs={
                         kind === 'posts'
-                            ? ['Tất cả', 'Bản nháp', 'Chờ duyệt', 'Đã lên lịch', 'Đã đăng']
+                            ? [
+                                  'Tất cả',
+                                  'Bản nháp',
+                                  'Chờ duyệt',
+                                  'Đã lên lịch',
+                                  'Đã đăng',
+                                  'Đã hủy'
+                              ]
                             : kind === 'campaigns'
                               ? ['Tất cả', 'Đang chạy', 'Tạm dừng', 'Bản nháp']
                               : null
@@ -749,287 +755,7 @@ function ShieldIcon() {
     return <Link2 size={17} />;
 }
 export function Analytics({ kind }) {
-    const { data, period, platform, edit, remove, view, navigate } = useWorkspace();
-    const [channel, setChannel] = useState('');
-    const [competitor, setCompetitor] = useState('');
-    const campaigns = data.campaigns.filter((c) => !channel || c.platform === channel);
-    const posts = data.posts.filter(
-        (p) => p.status === 'Đã đăng' && (!channel || p.platform === channel)
-    );
-    const budget = campaigns.reduce((s, c) => s + c.budget, 0);
-    const spent = campaigns.reduce((s, c) => s + c.spent, 0);
-    const reach = campaigns.reduce((s, c) => s + c.reach, 0);
-    const leads = campaigns.reduce((s, c) => s + c.leads, 0);
-    const comparison = data.competitors.filter((c) => !competitor || c.id === competitor);
-    const ratio = period === 'week' ? 0.26 : 1;
-    const metrics =
-        kind === 'performance'
-            ? [
-                  ['Tổng ngân sách', compact(budget) + ' ₫', '+12,4%', Wallet],
-                  ['Chi phí trong kỳ', compact(spent * ratio) + ' ₫', '-4,3%', Target],
-                  ['Khách tiềm năng', number(Math.round(leads * ratio)), '+8,2%', Users],
-                  [
-                      'Chi phí / khách tiềm năng',
-                      leads ? compact(spent / leads) + ' ₫' : '—',
-                      '-6,1%',
-                      MousePointer2
-                  ]
-              ]
-            : kind === 'traffic'
-              ? [
-                    ['Lượt tiếp cận', compact(reach * ratio), '+18,6%', Eye],
-                    ['Lượt truy cập', number(Math.round(reach * 0.16 * ratio)), '+14,2%', Globe2],
-                    ['Thời gian trung bình', '02:48', '+12,8%', Clock3],
-                    ['Tỷ lệ chuyển đổi', '4,82%', '+0,6%', Target]
-                ]
-              : kind === 'postInsights'
-                ? [
-                      ['Bài đã đăng', posts.length, 'Trong không gian', FileText],
-                      [
-                          'Tổng tiếp cận',
-                          compact(posts.reduce((s, p) => s + p.reach, 0) * ratio),
-                          '+16,8%',
-                          Eye
-                      ],
-                      [
-                          'Tổng tương tác',
-                          number(Math.round(posts.reduce((s, p) => s + p.engagement, 0) * ratio)),
-                          '+12,8%',
-                          Heart
-                      ],
-                      [
-                          'Tỷ lệ tương tác',
-                          posts.reduce((s, p) => s + p.reach, 0)
-                              ? (
-                                    (posts.reduce((s, p) => s + p.engagement, 0) /
-                                        posts.reduce((s, p) => s + p.reach, 0)) *
-                                    100
-                                ).toFixed(2) + '%'
-                              : '—',
-                          '+0,4%',
-                          MessageCircle
-                      ]
-                  ]
-                : [
-                      ['Đối thủ theo dõi', comparison.length, 'Đang theo dõi', Users],
-                      ['Traffic của thương hiệu', '98,4 N', '+18,6%', Globe2],
-                      [
-                          'Từ khóa Top 10',
-                          data.keywords.filter((k) => k.rank <= 10 && k.rank > 0).length,
-                          '+Xu hướng',
-                          Search
-                      ],
-                      ['Điểm hiển thị', '78 / 100', '+6 điểm', TrendingUp]
-                  ];
-    return (
-        <>
-            <div className="section-toolbar">
-                <span className="section-summary">
-                    <BarChart3 size={17} />
-                    Báo cáo tổng hợp · Chỉ số demo
-                </span>
-                <div className="toolbar-right">
-                    {kind === 'competitors' ? (
-                        <>
-                            <select
-                                aria-label="Chọn đối thủ"
-                                value={competitor}
-                                onChange={(e) => setCompetitor(e.target.value)}
-                            >
-                                <option value="">Tất cả đối thủ</option>
-                                {data.competitors.map((c) => (
-                                    <option key={c.id} value={c.id}>
-                                        {c.name}
-                                    </option>
-                                ))}
-                            </select>
-                            <Button icon={Plus} kind="primary" onClick={() => edit('competitors')}>
-                                Thêm đối thủ
-                            </Button>
-                        </>
-                    ) : (
-                        <select
-                            aria-label="Kênh phân tích"
-                            value={channel}
-                            onChange={(e) => setChannel(e.target.value)}
-                        >
-                            <option value="">Tất cả kênh</option>
-                            {window.Omni.platforms.map((p) => (
-                                <option key={p}>{p}</option>
-                            ))}
-                        </select>
-                    )}
-                </div>
-            </div>
-            <div className="metrics">
-                {metrics.map(([label, value, delta, icon], i) => (
-                    <Metric
-                        key={label}
-                        label={label}
-                        value={value}
-                        delta={delta}
-                        icon={icon}
-                        tone={['purple', 'sand', 'mint', 'rose'][i]}
-                        note="trong báo cáo demo"
-                    />
-                ))}
-            </div>
-            <div className="chart-grid">
-                <Panel
-                    title={
-                        kind === 'performance'
-                            ? 'Hiệu suất đầu tư'
-                            : kind === 'competitors'
-                              ? 'Xu hướng traffic thị trường'
-                              : kind === 'postInsights'
-                                ? 'Tương tác theo thời gian'
-                                : 'Xu hướng truy cập'
-                    }
-                    subtitle="Dữ liệu minh họa · Không phải dữ liệu đồng bộ trực tiếp"
-                    action={
-                        <div className="chart-legend">
-                            <span>
-                                <i className="purple-dot" />
-                                {kind === 'competitors' ? 'Omni Studio' : 'Kỳ này'}
-                            </span>
-                            <span>
-                                <i className="mint-dot" />
-                                {kind === 'competitors'
-                                    ? comparison[0]?.name || 'Đối thủ'
-                                    : 'Kỳ trước'}
-                            </span>
-                        </div>
-                    }
-                >
-                    <LineChart
-                        period={period}
-                        platform={channel}
-                        compare={kind === 'competitors'}
-                    />
-                </Panel>
-                <Panel
-                    title={
-                        kind === 'performance'
-                            ? 'Mức sử dụng ngân sách'
-                            : kind === 'competitors'
-                              ? 'Điểm hiển thị'
-                              : 'Đóng góp theo kênh'
-                    }
-                    subtitle="Tổng hợp trong kỳ"
-                >
-                    <div className="breakdown-list">
-                        {kind === 'competitors'
-                            ? [{ id: 'ours', name: 'Omni Studio', score: 78 }, ...comparison].map(
-                                  (c, i) => (
-                                      <div key={c.id}>
-                                          <div>
-                                              <strong>{c.name}</strong>
-                                              <span>{c.score}/100</span>
-                                          </div>
-                                          <Progress
-                                              value={c.score}
-                                              color={i ? '#83bdb1' : '#9683e4'}
-                                          />
-                                      </div>
-                                  )
-                              )
-                            : data.channels
-                                  .filter((c) => !channel || c.platform === channel)
-                                  .map((c, i) => {
-                                      const related = campaigns.filter(
-                                          (cp) => cp.platform === c.platform
-                                      );
-                                      const share =
-                                          kind === 'performance'
-                                              ? (related.reduce((s, cp) => s + cp.spent, 0) /
-                                                    (related.reduce((s, cp) => s + cp.budget, 0) ||
-                                                        1)) *
-                                                100
-                                              : [32, 26, 18, 14, 6, 4][i];
-                                      return (
-                                          <div key={c.id}>
-                                              <div>
-                                                  <Platform name={c.platform} />
-                                                  <strong>{Math.round(share)}%</strong>
-                                              </div>
-                                              <Progress
-                                                  value={share}
-                                                  color={
-                                                      ['#9683e4', '#efb38a', '#83bdb1', '#91b4e8'][
-                                                          i % 4
-                                                      ]
-                                                  }
-                                              />
-                                          </div>
-                                      );
-                                  })}
-                    </div>
-                </Panel>
-            </div>
-            {kind === 'performance' ? (
-                <DataTable
-                    title="Ngân sách theo chiến dịch"
-                    name="ngan-sach"
-                    rows={campaigns}
-                    columns={columns.campaigns}
-                    onView={view}
-                />
-            ) : kind === 'postInsights' ? (
-                <DataTable
-                    title="Hiệu suất bài viết"
-                    name="hieu-suat-noi-dung"
-                    rows={posts}
-                    columns={[
-                        ...columns.posts.slice(0, 2),
-                        { key: 'reach', label: 'Lượt tiếp cận', render: (r) => number(r.reach) },
-                        ...columns.posts.slice(4)
-                    ]}
-                    onView={view}
-                />
-            ) : kind === 'competitors' ? (
-                <DataTable
-                    title="Đối thủ đang theo dõi"
-                    name="doi-thu"
-                    rows={comparison}
-                    columns={columns.competitors}
-                    onEdit={(r) => edit('competitors', r)}
-                    onDelete={(ids) => remove('competitors', ids)}
-                />
-            ) : (
-                <DataTable
-                    title="Traffic theo kênh"
-                    name="traffic-kenh"
-                    rows={data.channels
-                        .filter((c) => !channel || c.platform === channel)
-                        .map((c, i) => ({
-                            ...c,
-                            visits: Math.round([18450, 12820, 24360, 9460, 3120, 2840][i] * ratio),
-                            conversion: [4.8, 3.6, 5.2, 2.8, 1.9, 3.4][i],
-                            source: [
-                                'Social',
-                                'Social',
-                                'Organic Search',
-                                'Social',
-                                'Video',
-                                'Direct'
-                            ][i]
-                        }))}
-                    columns={[
-                        nameColumn,
-                        platformColumn,
-                        { key: 'source', label: 'Nguồn truy cập' },
-                        { key: 'visits', label: 'Lượt truy cập', render: (r) => number(r.visits) },
-                        {
-                            key: 'conversion',
-                            label: 'Chuyển đổi',
-                            render: (r) => r.conversion + '%'
-                        }
-                    ]}
-                    onView={view}
-                />
-            )}
-        </>
-    );
+    return <DatabaseAnalytics kind={kind} />;
 }
 export function Calendar() {
     const { data, compose } = useWorkspace();
@@ -1214,7 +940,14 @@ export function Calendar() {
     );
 }
 export function InboxPage() {
-    const { data, update, saving, notify } = useWorkspace();
+    const { data, update, saving, notify, user } = useWorkspace();
+    const [creating, setCreating] = useState(false),
+        [newContact, setNewContact] = useState({
+            name: '',
+            platform: 'Facebook',
+            customerId: '',
+            note: ''
+        });
     const [selected, setSelected] = useState(data.conversations[0]?.id);
     const [query, setQuery] = useState('');
     const [tab, setTab] = useState('Tất cả');
@@ -1251,7 +984,7 @@ export function InboxPage() {
                         c.id === selected ? { ...c, messages: [...c.messages, message] } : c
                     )
                 },
-                'Đã lưu phản hồi demo · Không gửi ra nền tảng'
+                'Đã lưu phản hồi nội bộ · Chưa gửi ra nền tảng'
             )
         )
             setReply('');
@@ -1265,6 +998,119 @@ export function InboxPage() {
                     <h2>
                         Hội thoại <span className="count">{data.conversations.length}</span>
                     </h2>
+                    {user.role !== 'viewer' && (
+                        <Button icon={Plus} onClick={() => setCreating(true)}>
+                            Tạo hội thoại nội bộ
+                        </Button>
+                    )}
+                    {creating && (
+                        <Modal title="Tạo hội thoại nội bộ" onClose={() => setCreating(false)}>
+                            <form
+                                className="dialog-body"
+                                onSubmit={async (e) => {
+                                    e.preventDefault();
+                                    const customer = data.customers.find(
+                                        (c) => c.id === newContact.customerId
+                                    );
+                                    const row = {
+                                        ...newContact,
+                                        name: customer?.name || newContact.name.trim(),
+                                        platform: customer?.platform || newContact.platform,
+                                        id: crypto.randomUUID(),
+                                        owner: user.name,
+                                        time: new Date().toLocaleTimeString('vi-VN', {
+                                            timeZone: 'Asia/Ho_Chi_Minh',
+                                            hour: '2-digit',
+                                            minute: '2-digit'
+                                        }),
+                                        status: 'Chưa xử lý',
+                                        messages: []
+                                    };
+                                    if (
+                                        await update(
+                                            {
+                                                ...data,
+                                                conversations: [...data.conversations, row]
+                                            },
+                                            'Đã tạo hội thoại nội bộ'
+                                        )
+                                    ) {
+                                        setSelected(row.id);
+                                        setCreating(false);
+                                        setNewContact({
+                                            name: '',
+                                            platform: 'Facebook',
+                                            customerId: '',
+                                            note: ''
+                                        });
+                                    }
+                                }}
+                            >
+                                <label>
+                                    Khách hàng đã lưu
+                                    <select
+                                        value={newContact.customerId}
+                                        onChange={(e) =>
+                                            setNewContact({
+                                                ...newContact,
+                                                customerId: e.target.value
+                                            })
+                                        }
+                                    >
+                                        <option value="">Nhập tên mới</option>
+                                        {data.customers.map((c) => (
+                                            <option key={c.id} value={c.id}>
+                                                {c.name}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </label>
+                                <label>
+                                    Tên liên hệ
+                                    <input
+                                        required={!newContact.customerId}
+                                        maxLength={180}
+                                        value={newContact.name}
+                                        onChange={(e) =>
+                                            setNewContact({ ...newContact, name: e.target.value })
+                                        }
+                                    />
+                                </label>
+                                <label>
+                                    Kênh
+                                    <select
+                                        value={newContact.platform}
+                                        onChange={(e) =>
+                                            setNewContact({
+                                                ...newContact,
+                                                platform: e.target.value
+                                            })
+                                        }
+                                    >
+                                        {window.Omni.platforms.map((p) => (
+                                            <option key={p}>{p}</option>
+                                        ))}
+                                    </select>
+                                </label>
+                                <label>
+                                    Ghi chú
+                                    <textarea
+                                        value={newContact.note}
+                                        onChange={(e) =>
+                                            setNewContact({ ...newContact, note: e.target.value })
+                                        }
+                                    />
+                                </label>
+                                <p className="hint">
+                                    Hội thoại nội bộ được lưu trong database; chưa gửi hoặc nhận tin
+                                    nhắn từ nhà cung cấp.
+                                </p>
+                                <Button type="submit" disabled={saving}>
+                                    Tạo hội thoại
+                                </Button>
+                            </form>
+                        </Modal>
+                    )}
                     <label className="search-field">
                         <Search size={16} />
                         <input
@@ -1337,7 +1183,7 @@ export function InboxPage() {
                                 <strong>{conversation.name}</strong>
                                 <small>
                                     <Platform name={conversation.platform} small />
-                                    {conversation.platform} · Hội thoại demo
+                                    {conversation.platform} · Hội thoại nội bộ
                                 </small>
                             </div>
                             <div className="chat-head-actions">
@@ -1378,7 +1224,7 @@ export function InboxPage() {
                             </div>
                         </div>
                         <div className="chat-messages" ref={messagesRef}>
-                            <div className="message-date">Hôm nay · Bản demo</div>
+                            <div className="message-date">Hội thoại nội bộ</div>
                             {conversation.messages.map((m, i) => (
                                 <div key={i} className={`message ${m.from}`}>
                                     <p>{m.text}</p>
@@ -1392,7 +1238,7 @@ export function InboxPage() {
                         <form className="reply-box" onSubmit={send}>
                             <div className="reply-label">
                                 <strong>Phản hồi</strong>
-                                <span>Chỉ lưu trong không gian demo</span>
+                                <span>Lưu trong PostgreSQL · Chưa gửi ra nền tảng</span>
                             </div>
                             <textarea
                                 aria-label="Nội dung phản hồi"
@@ -1427,7 +1273,7 @@ export function InboxPage() {
                         </button>
                         <Avatar name={conversation.name} size="large" />
                         <h3>{conversation.name}</h3>
-                        <span>Khách hàng · Demo</span>
+                        <span>Khách hàng · Hội thoại nội bộ</span>
                         <div className="contact-section">
                             <h4>Thông tin liên hệ</h4>
                             <p>
@@ -1441,8 +1287,11 @@ export function InboxPage() {
                         <div className="contact-section">
                             <h4>Người phụ trách</h4>
                             <div className="name-cell">
-                                <Avatar name="Linh Nguyễn" size="small" />
-                                <strong>Linh Nguyễn</strong>
+                                <Avatar
+                                    name={conversation.owner || 'Chưa phân công'}
+                                    size="small"
+                                />
+                                <strong>{conversation.owner || 'Chưa phân công'}</strong>
                             </div>
                         </div>
                         <div className="contact-section">
@@ -1451,7 +1300,7 @@ export function InboxPage() {
                         </div>
                         <div className="contact-section">
                             <h4>Ghi chú</h4>
-                            <p>Quan tâm nội dung và bộ sưu tập mới của thương hiệu.</p>
+                            <p>{conversation.note || 'Chưa có ghi chú.'}</p>
                         </div>
                     </aside>
                 </>
@@ -1477,7 +1326,7 @@ export function RankCheck() {
             return;
         }
         setBusy(true);
-        const rank = (keyword.split('').reduce((s, c) => s + c.charCodeAt(0), 0) % 20) + 1;
+        const rank = 0;
         const record = {
             id: crypto.randomUUID(),
             name: keyword.trim(),
@@ -1486,14 +1335,14 @@ export function RankCheck() {
             region,
             rank,
             date: new Date().toLocaleDateString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' }),
-            status: 'Kết quả mô phỏng'
+            status: 'Chờ kết nối SERP'
         };
         try {
             await new Promise((resolve) => setTimeout(resolve, 350));
             if (
                 await update(
                     { ...data, rankChecks: [record, ...data.rankChecks] },
-                    'Đã lưu kết quả mô phỏng'
+                    'Đã lưu yêu cầu kiểm tra · Chưa có kết quả SERP'
                 )
             )
                 setResult(record);
@@ -1507,7 +1356,7 @@ export function RankCheck() {
             <div className="rank-check-layout">
                 <Panel
                     title="Kiểm tra thứ hạng từ khóa"
-                    subtitle="Mô phỏng quy trình kiểm tra · Chưa kết nối dịch vụ SERP"
+                    subtitle="Lưu yêu cầu và lịch sử · Chưa kết nối dịch vụ SERP"
                 >
                     <form className="rank-form" onSubmit={check}>
                         <label>
@@ -1556,25 +1405,26 @@ export function RankCheck() {
                             type="submit"
                             disabled={busy || saving}
                         >
-                            {busy ? 'Đang mô phỏng…' : 'Chạy kiểm tra demo'}
+                            {busy ? 'Đang lưu…' : 'Lưu yêu cầu kiểm tra'}
                         </Button>
                     </form>
                 </Panel>
                 <section className="rank-result panel">
                     {result ? (
                         <>
-                            <span className="eyebrow">KẾT QUẢ MÔ PHỎNG</span>
+                            <span className="eyebrow">YÊU CẦU ĐÃ LƯU</span>
                             <div className="rank-big">
-                                #{result.rank}
+                                {result.rank ? '#' + result.rank : 'Chờ dữ liệu'}
                                 <ArrowUpRight size={32} />
                             </div>
                             <h2>{result.name}</h2>
                             <p>
                                 {result.url} · {result.region}
                             </p>
-                            <Badge value={result.rank <= 10 ? 'Top 10' : 'Top 20'} />
+                            <Badge value={result.status} />
                             <p className="hint">
-                                Kết quả được tạo từ dữ liệu mẫu, không phải thứ hạng Google thực tế.
+                                Yêu cầu được lưu trong database. Kết quả sẽ có khi kết nối adapter
+                                SERP.
                             </p>
                         </>
                     ) : (
@@ -1599,7 +1449,11 @@ export function RankCheck() {
                     { key: 'name', label: 'Từ khóa' },
                     { key: 'url', label: 'Tên miền' },
                     { key: 'region', label: 'Khu vực' },
-                    { key: 'rank', label: 'Thứ hạng demo', render: (r) => '#' + r.rank },
+                    {
+                        key: 'rank',
+                        label: 'Thứ hạng',
+                        render: (r) => (r.rank ? '#' + r.rank : 'Chờ dữ liệu')
+                    },
                     { key: 'date', label: 'Ngày kiểm tra' }
                 ]}
             />
@@ -1607,6 +1461,34 @@ export function RankCheck() {
     );
 }
 export function Workflows() {
+    const { user, navigate } = useWorkspace();
+    const canRun = ['admin', 'manager'].includes(user?.role);
+    const [state, setState] = useState({ loading: true, messages: [], runs: [], error: '' });
+    const [busy, setBusy] = useState('');
+    async function load() {
+        if (!canRun) return;
+        try {
+            const result = await authRequest('/api/automation/status');
+            setState({ loading: false, ...result, error: '' });
+        } catch (error) {
+            setState((current) => ({ ...current, loading: false, error: error.message }));
+        }
+    }
+    useEffect(() => {
+        load();
+    }, [canRun]);
+    async function run(kind) {
+        setBusy(kind);
+        setState((current) => ({ ...current, error: '' }));
+        try {
+            await authRequest(`/api/automation/rpa/${kind}`, { method: 'POST' });
+            await load();
+        } catch (error) {
+            setState((current) => ({ ...current, error: error.message }));
+        } finally {
+            setBusy('');
+        }
+    }
     return (
         <>
             <div className="workflow-intro">
@@ -1616,10 +1498,120 @@ export function Workflows() {
                 <div>
                     <h2>Tự động hóa có chủ đích.</h2>
                     <p>
-                        n8n điều phối workflow; Robot Framework thực hiện các tác vụ RPA bằng code.
+                        n8n điều phối email và lịch chạy; Playwright thao tác Dashboard và xuất CSV
+                        trên giao diện.
                     </p>
                 </div>
                 <span className="badge gray">Cấu hình tích hợp</span>
+            </div>
+            <Administration kind="data" />
+            <div className="workflow-grid">
+                <Panel
+                    title="Thông báo duyệt bài"
+                    subtitle="Gửi tới Admin/Manager khi nhân viên gửi duyệt; nhắc trước giờ đăng 3 giờ hoặc sau 2 ngày chờ duyệt."
+                >
+                    <p className="workflow-description">
+                        Email được xếp hàng trong PostgreSQL. n8n chỉ gửi sau khi quản trị viên cấu
+                        hình PostgreSQL và SMTP, rồi bật workflow. Duyệt bài vẫn do người quản lý
+                        thực hiện.
+                    </p>
+                    <Button onClick={() => navigate('calendar')}>Mở bài chờ duyệt</Button>
+                    {canRun && (
+                        <div className="automation-list">
+                            <strong>Thông báo gần đây</strong>
+                            {state.messages.length ? (
+                                state.messages.slice(0, 6).map((message) => (
+                                    <div key={message.id} className="automation-row">
+                                        <span>{message.plan_name || 'Bài viết'}</span>
+                                        <small>{message.recipient_email}</small>
+                                        <Badge
+                                            value={
+                                                {
+                                                    queued: 'Chờ gửi',
+                                                    sending: 'Đang gửi / cần kiểm tra',
+                                                    sent: 'Đã gửi',
+                                                    cancelled: 'Đã hủy'
+                                                }[message.status]
+                                            }
+                                        />
+                                    </div>
+                                ))
+                            ) : (
+                                <p>Chưa có thông báo nào.</p>
+                            )}
+                        </div>
+                    )}
+                </Panel>
+                <Panel
+                    title="Playwright · tác vụ trên UI"
+                    subtitle="Chụp Dashboard hằng ngày và xuất CSV số liệu bài viết/traffic hằng tuần."
+                >
+                    <p className="workflow-description">
+                        Chạy thử bằng tài khoản đang đăng nhập. Bản chạy theo lịch cần n8n tạo tác
+                        vụ và tiến trình RPA trên máy chủ.
+                    </p>
+                    {canRun ? (
+                        <div className="automation-actions">
+                            <Button
+                                disabled={Boolean(busy)}
+                                onClick={() => run('dashboard_screenshot')}
+                            >
+                                {busy === 'dashboard_screenshot' ? 'Đang chụp…' : 'Chụp Dashboard'}
+                            </Button>
+                            <Button
+                                aria-label="Xuất CSV bằng Playwright"
+                                disabled={Boolean(busy)}
+                                onClick={() => run('weekly_csv')}
+                            >
+                                {busy === 'weekly_csv' ? 'Đang xuất…' : 'Xuất CSV'}
+                            </Button>
+                        </div>
+                    ) : (
+                        <p>Admin/Manager có quyền chạy RPA.</p>
+                    )}
+                    {state.error && (
+                        <p role="alert" className="form-error">
+                            {state.error}
+                        </p>
+                    )}
+                    {canRun && (
+                        <div className="automation-list">
+                            <strong>Lần chạy gần đây</strong>
+                            {state.runs.length ? (
+                                state.runs.slice(0, 6).map((run) => (
+                                    <div key={run.id} className="automation-row">
+                                        <span>
+                                            {run.kind === 'dashboard_screenshot'
+                                                ? 'Chụp Dashboard'
+                                                : 'Xuất CSV'}
+                                        </span>
+                                        <Badge
+                                            value={
+                                                {
+                                                    queued: 'Chờ chạy',
+                                                    running: 'Đang chạy',
+                                                    success: 'Hoàn tất',
+                                                    failed: 'Lỗi'
+                                                }[run.status]
+                                            }
+                                        />
+                                        {run.status === 'success' &&
+                                            run.artifact_name?.split(',').map((name) => (
+                                                <a
+                                                    key={name}
+                                                    href={`/api/automation/artifacts/${run.id}/${name}`}
+                                                >
+                                                    {name}
+                                                </a>
+                                            ))}
+                                    </div>
+                                ))
+                            ) : (
+                                <p>Chưa chạy tác vụ nào.</p>
+                            )}
+                        </div>
+                    )}
+                </Panel>
             </div>
             <div className="workflow-grid">
                 <Panel title="n8n · Visual Workflow" subtitle="Self-hosted · Docker Compose">
@@ -1640,8 +1632,8 @@ export function Workflows() {
                         </span>
                     </div>
                     <p className="workflow-description">
-                        Workflow mẫu tạo bản ghi duyệt nội dung. Chưa bật lịch chạy tự động hoặc
-                        đăng lên nền tảng.
+                        Ba workflow mới xếp hàng email duyệt bài, chụp Dashboard và xuất CSV. Cần
+                        cấu hình PostgreSQL/SMTP rồi chủ động bật lịch trong n8n.
                     </p>
                     <a
                         className="button primary"
@@ -1682,8 +1674,8 @@ export function Workflows() {
             </div>
             <div className="info-note">
                 <Workflow size={18} />
-                Trình lên lịch trong UI hiện lưu trạng thái nội dung. Kết nối worker đăng bài và thu
-                thập chỉ số là bước tích hợp tiếp theo.
+                RPA chỉ đọc và xuất dữ liệu. Bài chờ duyệt không tự được duyệt; worker đăng bài
+                Facebook là tiến trình riêng và chỉ chạy khi được bật.
             </div>
         </>
     );

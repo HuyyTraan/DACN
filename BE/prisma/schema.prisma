@@ -1,0 +1,656 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model omni_workspace {
+  id         Int      @id
+  data       Json
+  version    Int      @default(1)
+  updated_at DateTime @default(now()) @db.Timestamptz(6)
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model publishing_deliveries {
+  id                      String                    @id @db.Uuid
+  plan_id                 String                    @db.Uuid
+  account_id              String
+  item_index              Int
+  occurrence              Int                       @default(0)
+  due_at                  DateTime                  @db.Timestamptz(6)
+  status                  String                    @default("queued")
+  provider_post_id        String?
+  error                   String?
+  started_at              DateTime?                 @db.Timestamptz(6)
+  finished_at             DateTime?                 @db.Timestamptz(6)
+  plan_version            Int                       @default(1)
+  publishing_plans        publishing_plans          @relation(fields: [plan_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  studio_delivery_history studio_delivery_history[]
+
+  @@unique([plan_id, account_id, item_index, occurrence, plan_version], map: "publishing_delivery_revision")
+  @@index([plan_id], map: "publishing_plan_deliveries")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model publishing_plans {
+  id                                                     String                  @id @db.Uuid
+  version                                                Int                     @default(1)
+  payload                                                Json
+  status                                                 String
+  created_at                                             DateTime                @default(now()) @db.Timestamptz(6)
+  updated_at                                             DateTime                @default(now()) @db.Timestamptz(6)
+  created_by                                             String?                 @db.Uuid
+  updated_by                                             String?                 @db.Uuid
+  publishing_deliveries                                  publishing_deliveries[]
+  studio_users_publishing_plans_created_byTostudio_users studio_users?           @relation("publishing_plans_created_byTostudio_users", fields: [created_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  studio_users_publishing_plans_updated_byTostudio_users studio_users?           @relation("publishing_plans_updated_byTostudio_users", fields: [updated_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  studio_plan_history                                    studio_plan_history[]
+
+  @@index([created_by], map: "publishing_plans_creator")
+  @@index([updated_by], map: "publishing_plans_updater")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model studio_accounts {
+  id               String
+  workspace_id     Int
+  name             String
+  platform         String           @default("")
+  status           String           @default("")
+  payload          Json
+  version          Int              @default(1)
+  created_at       DateTime         @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime         @default(now()) @db.Timestamptz(6)
+  deleted_at       DateTime?        @db.Timestamptz(6)
+  email            String?
+  owner_name       String?
+  studio_workspace studio_workspace @relation(fields: [workspace_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@id([workspace_id, id])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model studio_ads {
+  id               String
+  workspace_id     Int
+  name             String
+  platform         String            @default("")
+  status           String            @default("")
+  payload          Json
+  version          Int               @default(1)
+  created_at       DateTime          @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime          @default(now()) @db.Timestamptz(6)
+  deleted_at       DateTime?         @db.Timestamptz(6)
+  campaign_id      String?
+  budget           Decimal?          @db.Decimal(18, 2)
+  spent            Decimal?          @db.Decimal(18, 2)
+  clicks           BigInt?
+  studio_campaigns studio_campaigns? @relation(fields: [workspace_id, campaign_id], references: [workspace_id, id], onDelete: NoAction, onUpdate: NoAction)
+  studio_workspace studio_workspace  @relation(fields: [workspace_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@id([workspace_id, id])
+  @@index([workspace_id, campaign_id], map: "studio_ads_campaign")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model studio_approvals {
+  id               String
+  workspace_id     Int
+  name             String
+  platform         String           @default("")
+  status           String           @default("")
+  payload          Json
+  version          Int              @default(1)
+  created_at       DateTime         @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime         @default(now()) @db.Timestamptz(6)
+  deleted_at       DateTime?        @db.Timestamptz(6)
+  post_id          String?
+  studio_posts     studio_posts?    @relation(fields: [workspace_id, post_id], references: [workspace_id, id], onDelete: NoAction, onUpdate: NoAction, map: "studio_approval_post_fk")
+  studio_workspace studio_workspace @relation(fields: [workspace_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@id([workspace_id, id])
+  @@index([workspace_id, post_id], map: "studio_approval_post")
+}
+
+model studio_audit {
+  id               BigInt           @id @default(autoincrement())
+  workspace_id     Int
+  actor_id         String?          @db.Uuid
+  action           String
+  entity           String
+  entity_id        String?
+  before_data      Json?
+  after_data       Json?
+  created_at       DateTime         @default(now()) @db.Timestamptz(6)
+  studio_users     studio_users?    @relation(fields: [actor_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  studio_workspace studio_workspace @relation(fields: [workspace_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([workspace_id, id(sort: Desc)], map: "studio_audit_timeline")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model studio_campaigns {
+  id               String
+  workspace_id     Int
+  name             String
+  platform         String           @default("")
+  status           String           @default("")
+  payload          Json
+  version          Int              @default(1)
+  created_at       DateTime         @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime         @default(now()) @db.Timestamptz(6)
+  deleted_at       DateTime?        @db.Timestamptz(6)
+  owner_name       String?
+  starts_on        DateTime?        @db.Date
+  ends_on          DateTime?        @db.Date
+  budget           Decimal?         @db.Decimal(18, 2)
+  spent            Decimal?         @db.Decimal(18, 2)
+  studio_ads       studio_ads[]
+  studio_workspace studio_workspace @relation(fields: [workspace_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  studio_posts     studio_posts[]
+
+  @@id([workspace_id, id])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model studio_channels {
+  id               String
+  workspace_id     Int
+  name             String
+  platform         String           @default("")
+  status           String           @default("")
+  payload          Json
+  version          Int              @default(1)
+  created_at       DateTime         @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime         @default(now()) @db.Timestamptz(6)
+  deleted_at       DateTime?        @db.Timestamptz(6)
+  url              String?
+  owner_name       String?
+  followers        BigInt?
+  studio_workspace studio_workspace @relation(fields: [workspace_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@id([workspace_id, id])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model studio_competitors {
+  id               String
+  workspace_id     Int
+  name             String
+  platform         String           @default("")
+  status           String           @default("")
+  payload          Json
+  version          Int              @default(1)
+  created_at       DateTime         @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime         @default(now()) @db.Timestamptz(6)
+  deleted_at       DateTime?        @db.Timestamptz(6)
+  url              String?
+  traffic          BigInt?
+  keyword_count    BigInt?
+  score            Decimal?         @db.Decimal(10, 2)
+  studio_workspace studio_workspace @relation(fields: [workspace_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@id([workspace_id, id])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model studio_conversations {
+  id               String
+  workspace_id     Int
+  name             String
+  platform         String            @default("")
+  status           String            @default("")
+  payload          Json
+  version          Int               @default(1)
+  created_at       DateTime          @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime          @default(now()) @db.Timestamptz(6)
+  deleted_at       DateTime?         @db.Timestamptz(6)
+  customer_id      String?
+  studio_customers studio_customers? @relation(fields: [workspace_id, customer_id], references: [workspace_id, id], onDelete: NoAction, onUpdate: NoAction)
+  studio_workspace studio_workspace  @relation(fields: [workspace_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  studio_messages  studio_messages[]
+
+  @@id([workspace_id, id])
+  @@index([workspace_id, customer_id], map: "studio_conversations_customer")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model studio_customers {
+  id                    String
+  workspace_id          Int
+  name                  String
+  platform              String                  @default("")
+  status                String                  @default("")
+  payload               Json
+  version               Int                     @default(1)
+  created_at            DateTime                @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime                @default(now()) @db.Timestamptz(6)
+  deleted_at            DateTime?               @db.Timestamptz(6)
+  email                 String?
+  source                String?
+  visits                BigInt?
+  studio_conversations  studio_conversations[]
+  studio_workspace      studio_workspace        @relation(fields: [workspace_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  studio_traffic_events studio_traffic_events[]
+
+  @@id([workspace_id, id])
+}
+
+model studio_delivery_history {
+  id                    BigInt                @id @default(autoincrement())
+  delivery_id           String                @db.Uuid
+  status                String
+  provider_post_id      String?
+  error                 String?
+  created_at            DateTime              @default(now()) @db.Timestamptz(6)
+  publishing_deliveries publishing_deliveries @relation(fields: [delivery_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([delivery_id, id], map: "studio_delivery_history_delivery")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model studio_keywords {
+  id                 String
+  workspace_id       Int
+  name               String
+  platform           String               @default("")
+  status             String               @default("")
+  payload            Json
+  version            Int                  @default(1)
+  created_at         DateTime             @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime             @default(now()) @db.Timestamptz(6)
+  deleted_at         DateTime?            @db.Timestamptz(6)
+  url                String?
+  rank               Int?
+  previous_rank      Int?
+  search_volume      BigInt?
+  studio_workspace   studio_workspace     @relation(fields: [workspace_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  studio_rank_checks studio_rank_checks[]
+
+  @@id([workspace_id, id])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model studio_media {
+  id               String
+  workspace_id     Int
+  name             String
+  platform         String           @default("")
+  status           String           @default("")
+  payload          Json
+  version          Int              @default(1)
+  created_at       DateTime         @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime         @default(now()) @db.Timestamptz(6)
+  deleted_at       DateTime?        @db.Timestamptz(6)
+  studio_workspace studio_workspace @relation(fields: [workspace_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@id([workspace_id, id])
+}
+
+model studio_messages {
+  workspace_id         Int
+  conversation_id      String
+  message_index        Int
+  sender               String
+  content              String
+  sent_label           String?
+  created_at           DateTime             @default(now()) @db.Timestamptz(6)
+  studio_conversations studio_conversations @relation(fields: [workspace_id, conversation_id], references: [workspace_id, id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@id([workspace_id, conversation_id, message_index])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model studio_metrics {
+  id                     String
+  workspace_id           Int
+  name                   String
+  platform               String                  @default("")
+  status                 String                  @default("")
+  payload                Json
+  version                Int                     @default(1)
+  created_at             DateTime                @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime                @default(now()) @db.Timestamptz(6)
+  deleted_at             DateTime?               @db.Timestamptz(6)
+  account_id             String?
+  post_id                String?
+  studio_social_accounts studio_social_accounts? @relation(fields: [workspace_id, account_id], references: [workspace_id, id], onDelete: NoAction, onUpdate: NoAction, map: "studio_metric_account_fk")
+  studio_posts           studio_posts?           @relation(fields: [workspace_id, post_id], references: [workspace_id, id], onDelete: NoAction, onUpdate: NoAction, map: "studio_metric_post_fk")
+  studio_workspace       studio_workspace        @relation(fields: [workspace_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@id([workspace_id, id])
+  @@index([workspace_id, account_id], map: "studio_metric_account")
+  @@index([workspace_id, post_id], map: "studio_metric_post")
+}
+
+model studio_migrations {
+  name       String   @id
+  checksum   String
+  applied_at DateTime @default(now()) @db.Timestamptz(6)
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model studio_notifications {
+  id               String
+  workspace_id     Int
+  name             String
+  platform         String           @default("")
+  status           String           @default("")
+  payload          Json
+  version          Int              @default(1)
+  created_at       DateTime         @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime         @default(now()) @db.Timestamptz(6)
+  deleted_at       DateTime?        @db.Timestamptz(6)
+  user_id          String?          @db.Uuid
+  studio_users     studio_users?    @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  studio_workspace studio_workspace @relation(fields: [workspace_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@id([workspace_id, id])
+  @@index([user_id], map: "studio_notification_user")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model studio_post_items {
+  workspace_id  Int
+  post_id       String
+  item_index    Int
+  kind          String
+  content       String
+  delay_minutes Int          @default(0)
+  image_data    String?
+  studio_posts  studio_posts @relation(fields: [workspace_id, post_id], references: [workspace_id, id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@id([workspace_id, post_id, item_index])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model studio_posts {
+  id                String
+  workspace_id      Int
+  name              String
+  platform          String              @default("")
+  status            String              @default("")
+  payload           Json
+  version           Int                 @default(1)
+  created_at        DateTime            @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime            @default(now()) @db.Timestamptz(6)
+  deleted_at        DateTime?           @db.Timestamptz(6)
+  content           String?
+  planned_at        DateTime?           @db.Timestamptz(6)
+  campaign_id       String?
+  studio_approvals  studio_approvals[]
+  studio_metrics    studio_metrics[]
+  studio_post_items studio_post_items[]
+  studio_campaigns  studio_campaigns?   @relation(fields: [workspace_id, campaign_id], references: [workspace_id, id], onDelete: NoAction, onUpdate: NoAction)
+  studio_workspace  studio_workspace    @relation(fields: [workspace_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@id([workspace_id, id])
+  @@index([workspace_id, campaign_id], map: "studio_posts_campaign")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model studio_rank_checks {
+  id               String
+  workspace_id     Int
+  name             String
+  platform         String           @default("")
+  status           String           @default("")
+  payload          Json
+  version          Int              @default(1)
+  created_at       DateTime         @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime         @default(now()) @db.Timestamptz(6)
+  deleted_at       DateTime?        @db.Timestamptz(6)
+  keyword_id       String?
+  url              String?
+  region           String?
+  rank             Int?
+  studio_workspace studio_workspace @relation(fields: [workspace_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  studio_keywords  studio_keywords? @relation(fields: [workspace_id, keyword_id], references: [workspace_id, id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@id([workspace_id, id])
+  @@index([workspace_id, keyword_id], map: "studio_rank_keyword")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model studio_reports {
+  id               String
+  workspace_id     Int
+  name             String
+  platform         String           @default("")
+  status           String           @default("")
+  payload          Json
+  version          Int              @default(1)
+  created_at       DateTime         @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime         @default(now()) @db.Timestamptz(6)
+  deleted_at       DateTime?        @db.Timestamptz(6)
+  studio_workspace studio_workspace @relation(fields: [workspace_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@id([workspace_id, id])
+}
+
+model studio_sessions {
+  token_hash   String       @id
+  user_id      String       @db.Uuid
+  csrf_hash    String
+  expires_at   DateTime     @db.Timestamptz(6)
+  created_at   DateTime     @default(now()) @db.Timestamptz(6)
+  studio_users studio_users @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([expires_at], map: "studio_sessions_expiry")
+  @@index([user_id], map: "studio_sessions_user")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model studio_settings {
+  id               String
+  workspace_id     Int
+  name             String
+  platform         String           @default("")
+  status           String           @default("")
+  payload          Json
+  version          Int              @default(1)
+  created_at       DateTime         @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime         @default(now()) @db.Timestamptz(6)
+  deleted_at       DateTime?        @db.Timestamptz(6)
+  studio_workspace studio_workspace @relation(fields: [workspace_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@id([workspace_id, id])
+}
+
+model studio_snapshot_history {
+  id               BigInt           @id @default(autoincrement())
+  workspace_id     Int
+  version          Int
+  data             Json
+  actor_id         String?          @db.Uuid
+  created_at       DateTime         @default(now()) @db.Timestamptz(6)
+  studio_users     studio_users?    @relation(fields: [actor_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  studio_workspace studio_workspace @relation(fields: [workspace_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([workspace_id, version])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model studio_social_accounts {
+  id               String
+  workspace_id     Int
+  name             String
+  platform         String           @default("")
+  status           String           @default("")
+  payload          Json
+  version          Int              @default(1)
+  created_at       DateTime         @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime         @default(now()) @db.Timestamptz(6)
+  deleted_at       DateTime?        @db.Timestamptz(6)
+  studio_metrics   studio_metrics[]
+  studio_workspace studio_workspace @relation(fields: [workspace_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@id([workspace_id, id])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model studio_tags {
+  id               String
+  workspace_id     Int
+  name             String
+  platform         String           @default("")
+  status           String           @default("")
+  payload          Json
+  version          Int              @default(1)
+  created_at       DateTime         @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime         @default(now()) @db.Timestamptz(6)
+  deleted_at       DateTime?        @db.Timestamptz(6)
+  studio_workspace studio_workspace @relation(fields: [workspace_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@id([workspace_id, id])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model studio_traffic_events {
+  id               String
+  workspace_id     Int
+  name             String
+  platform         String            @default("")
+  status           String            @default("")
+  payload          Json
+  version          Int               @default(1)
+  created_at       DateTime          @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime          @default(now()) @db.Timestamptz(6)
+  deleted_at       DateTime?         @db.Timestamptz(6)
+  customer_id      String?
+  studio_customers studio_customers? @relation(fields: [workspace_id, customer_id], references: [workspace_id, id], onDelete: NoAction, onUpdate: NoAction, map: "studio_traffic_customer_fk")
+  studio_workspace studio_workspace  @relation(fields: [workspace_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@id([workspace_id, id])
+  @@index([workspace_id, customer_id], map: "studio_traffic_customer")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model studio_users {
+  id                                                         String                    @id @db.Uuid
+  workspace_id                                               Int
+  email                                                      String                    @unique
+  name                                                       String
+  password_hash                                              String
+  role                                                       String
+  active                                                     Boolean                   @default(true)
+  created_at                                                 DateTime                  @default(now()) @db.Timestamptz(6)
+  updated_at                                                 DateTime                  @default(now()) @db.Timestamptz(6)
+  publishing_plans_publishing_plans_created_byTostudio_users publishing_plans[]        @relation("publishing_plans_created_byTostudio_users")
+  publishing_plans_publishing_plans_updated_byTostudio_users publishing_plans[]        @relation("publishing_plans_updated_byTostudio_users")
+  studio_audit                                               studio_audit[]
+  studio_notifications                                       studio_notifications[]
+  studio_plan_history                                        studio_plan_history[]
+  studio_publish_requests                                    studio_publish_requests[]
+  studio_sessions                                            studio_sessions[]
+  studio_snapshot_history                                    studio_snapshot_history[]
+  studio_workspace                                           studio_workspace          @relation(fields: [workspace_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([workspace_id], map: "studio_users_workspace")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model studio_workflow_runs {
+  id               String
+  workspace_id     Int
+  name             String
+  platform         String            @default("")
+  status           String            @default("")
+  payload          Json
+  version          Int               @default(1)
+  created_at       DateTime          @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime          @default(now()) @db.Timestamptz(6)
+  deleted_at       DateTime?         @db.Timestamptz(6)
+  workflow_id      String?
+  studio_workflows studio_workflows? @relation(fields: [workspace_id, workflow_id], references: [workspace_id, id], onDelete: NoAction, onUpdate: NoAction, map: "studio_run_workflow_fk")
+  studio_workspace studio_workspace  @relation(fields: [workspace_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@id([workspace_id, id])
+  @@index([workspace_id, workflow_id], map: "studio_run_workflow")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model studio_workflows {
+  id                   String
+  workspace_id         Int
+  name                 String
+  platform             String                 @default("")
+  status               String                 @default("")
+  payload              Json
+  version              Int                    @default(1)
+  created_at           DateTime               @default(now()) @db.Timestamptz(6)
+  updated_at           DateTime               @default(now()) @db.Timestamptz(6)
+  deleted_at           DateTime?              @db.Timestamptz(6)
+  studio_workflow_runs studio_workflow_runs[]
+  studio_workspace     studio_workspace       @relation(fields: [workspace_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@id([workspace_id, id])
+}
+
+model studio_workspace {
+  id                      Int                       @id
+  name                    String
+  timezone                String                    @default("Asia/Ho_Chi_Minh")
+  created_at              DateTime                  @default(now()) @db.Timestamptz(6)
+  studio_accounts         studio_accounts[]
+  studio_ads              studio_ads[]
+  studio_approvals        studio_approvals[]
+  studio_audit            studio_audit[]
+  studio_campaigns        studio_campaigns[]
+  studio_channels         studio_channels[]
+  studio_competitors      studio_competitors[]
+  studio_conversations    studio_conversations[]
+  studio_customers        studio_customers[]
+  studio_keywords         studio_keywords[]
+  studio_media            studio_media[]
+  studio_metrics          studio_metrics[]
+  studio_notifications    studio_notifications[]
+  studio_posts            studio_posts[]
+  studio_publish_requests studio_publish_requests[]
+  studio_rank_checks      studio_rank_checks[]
+  studio_reports          studio_reports[]
+  studio_settings         studio_settings[]
+  studio_snapshot_history studio_snapshot_history[]
+  studio_social_accounts  studio_social_accounts[]
+  studio_tags             studio_tags[]
+  studio_traffic_events   studio_traffic_events[]
+  studio_users            studio_users[]
+  studio_workflow_runs    studio_workflow_runs[]
+  studio_workflows        studio_workflows[]
+}
+
+model studio_plan_history {
+  id               BigInt           @id @default(autoincrement())
+  plan_id          String           @db.Uuid
+  version          Int
+  status           String
+  payload          Json
+  actor_id         String?          @db.Uuid
+  created_at       DateTime         @default(now()) @db.Timestamptz(6)
+  studio_users     studio_users?    @relation(fields: [actor_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  publishing_plans publishing_plans @relation(fields: [plan_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([plan_id, id(sort: Desc)], map: "studio_plan_history_plan")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model studio_publish_requests {
+  id               String           @id @db.Uuid
+  workspace_id     Int
+  actor_id         String?          @db.Uuid
+  fingerprint      String
+  status           String
+  result           Json?
+  created_at       DateTime         @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime         @default(now()) @db.Timestamptz(6)
+  studio_users     studio_users?    @relation(fields: [actor_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  studio_workspace studio_workspace @relation(fields: [workspace_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([actor_id], map: "studio_publish_requests_actor")
+  @@index([workspace_id, created_at(sort: Desc)], map: "studio_publish_requests_workspace")
+}
