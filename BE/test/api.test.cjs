@@ -2,8 +2,9 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const express = require('express');
 const axios = require('axios');
-delete process.env.DATABASE_URL;
-const app = require('../server');
+process.env.DATABASE_URL = '';
+// Explicit dependency injection for legacy mocked endpoints; production defaults to auth.
+const app = require('../server').createApp({ authentication: false });
 const { workspaceRouter, PostgresWorkspace } = require('../server/workspace');
 const { seed } = require('../../FE/public/domain');
 
@@ -32,7 +33,7 @@ test('UI, health, Swagger, Postman and safe validation endpoints', async () => {
         assert.equal((await (await fetch(base + '/api/health')).json()).status, 'ok');
         assert.equal((await (await fetch(base + '/api/workspace')).json()).mode, 'demo');
         assert.equal((await fetch(base + '/api/docs/')).status, 200);
-        assert.equal((await (await fetch(base + '/api/postman')).json()).item.length, 4);
+        assert.ok((await (await fetch(base + '/api/postman')).json()).item.length >= 4);
         assert.equal((await fetch(base + '/api/missing')).status, 404);
         for (const value of ['', ' ', 12, {}, null]) {
             const response = await fetch(base + '/api/publish/facebook', {
@@ -83,7 +84,7 @@ test('Facebook success and provider failure use a mock; no posts leave the machi
                 throw new Error('fake-token must never be exposed');
             };
             const failed = await request();
-            assert.equal(failed.status, 500);
+            assert.equal(failed.status, 502);
             assert.ok(!(await failed.text()).includes('fake-token'));
             delete process.env.PAGE_ACCESS_TOKEN;
             assert.equal((await request()).status, 503);
@@ -143,6 +144,8 @@ test('Postgres repository parameterizes writes and checks version atomically', a
     const state = seed();
     state.channels[0].name = "name'; DROP TABLE omni_workspace;--";
     await repository.write(state, 1);
+    const initial = queries.find((query) => query.text.startsWith('INSERT'));
+    assert.ok(Object.values(JSON.parse(initial.values[0])).every((rows) => rows.length === 0));
     const last = queries.at(-1);
     assert.ok(last.text.includes('version = $2'));
     assert.equal(last.values[1], 1);

@@ -1,12 +1,57 @@
 # Omni Studio
 
-Prototype quản trị tiếp thị đa kênh cho đồ án Intelligent Automation. UI React gồm 16 màn hình, dữ liệu minh họa và lưu dữ liệu quản trị bằng PostgreSQL hoặc localStorage.
+Omni Studio quản trị tiếp thị đa kênh với React/Express/PostgreSQL, đăng nhập và phân quyền. Dữ liệu quản trị, lịch đăng và nhật ký được lưu bền vững trên server.
+
+## Đăng nhập, database và lịch sử
+
+### Trạng thái và duyệt lịch đăng
+
+Lịch đọc thêm `published_posts` của các Facebook Page đã kết nối, theo khoảng ngày/tuần/tháng đang xem. Bài đăng trực tiếp trên Facebook cũng xuất hiện với trạng thái Đã đăng, dùng createdTime thực tế và múi giờ lịch. Trùng với workspace/delivery được loại theo provider post ID. Mỗi Page tải 25 bài/lượt; dùng **Tải thêm bài Facebook trong kỳ này** nếu còn cursor. Lỗi provider được hiển thị riêng, không coi lịch trống là đã đồng bộ đầy đủ. Bài Page mở bản xem trước có liên kết Facebook; sửa/xóa vẫn ở tab Bài trên nền tảng.
+
+Lịch nội dung có bộ lọc và nhãn: **Chưa duyệt**, **Đã duyệt chưa đăng**, **Đã đăng**, **Đã hủy**, cùng Bản nháp/Đang đăng/Lỗi/Cần kiểm tra. `pending` chưa tạo lượt đăng; Admin/Manager bấm **Duyệt & lên lịch** để chuyển thành `scheduled` và tạo hàng đợi. Editor được gửi duyệt nhưng không tự duyệt/đăng.
+
+Bài chưa duyệt đến giờ đăng chuyển `cancelled`. Bài đã duyệt mà lượt đăng vẫn ở hàng đợi sau giờ hẹn **2 phút** cũng chuyển **Đã hủy**; worker không nhận lượt quá hạn này để tránh đăng muộn sau khi khởi động lại. Với kế hoạch lặp, chỉ lượt bị lỡ và các nội dung nối tiếp của lượt đó bị hủy; lượt tương lai vẫn giữ lịch. Lượt đang đăng, đã đăng, lỗi hoặc chưa rõ kết quả được giữ nguyên để kiểm tra, không tự hủy hay đăng lại. Bài lịch workspace cũ quá giờ mà chưa có kết quả đăng cũng được hủy. Backend kiểm tra mỗi 30 giây và khi đọc/lưu kế hoạch; sau thời gian backend tắt, kiểm tra lại khi khởi động. Lý do và lịch sử được lưu trong PostgreSQL. Mục **Đã hủy** hiển thị cả bài ở ngày cũ trong các kế hoạch đã tải: với kế hoạch đã hủy hoàn toàn, chọn **Sửa giờ & gửi lại**, đổi giờ tương lai rồi bấm **Gửi lại lên workspace**. Bài trở về **Chưa duyệt**, cần được duyệt lại. Đã duyệt không đồng nghĩa đã đăng; nhãn **Đã đăng** lấy từ kết quả lượt đăng hoặc từ Facebook Page.
+
+### Tài khoản test cho dev (chỉ trên máy cục bộ)
+
+Các thông tin dưới đây là credential test công khai, không dùng cho production hoặc triển khai chung qua Internet. Chạy tại gốc repo sau khi cấu hình `BE/.env` và chạy migration:
+
+```powershell
+npm run db:migrate
+npm run db:dev-accounts
+```
+
+| Vai trò | Email đăng nhập trên DB cục bộ hiện tại | Mật khẩu test    | Phạm vi kiểm thử                                                   |
+| ------- | --------------------------------------- | ---------------- | ------------------------------------------------------------------ |
+| Admin   | khaipham111005@gmail.com                | OmniAdmin2026!   | Quản lý thành viên/quyền, cấu hình, dữ liệu và khôi phục snapshot  |
+| Manager | manager@omni.test                       | OmniManager2026! | Quản lý dữ liệu, duyệt/lên lịch/đăng bài; không quản lý thành viên |
+| Editor  | editor@omni.test                        | OmniEditor2026!  | Soạn nội dung/nháp; không lên lịch hoặc đăng thật                  |
+| Viewer  | viewer@omni.test                        | OmniViewer2026!  | Chỉ xem dữ liệu; không tạo/sửa/xóa                                 |
+
+Lệnh chỉ chạy khi PostgreSQL ở localhost và `NODE_ENV` khác `production`; không chạy tự động khi khởi động app. Chạy lại giữ nguyên tài khoản đã tồn tại, không đặt lại mật khẩu/quyền. Mật khẩu trong DB được băm bằng scrypt, không lưu dạng chữ. Tạo user đầu tiên bằng lệnh này sẽ đóng màn hình bootstrap. Mỗi dev cần chạy lệnh trên database cục bộ của mình; trên **database mới**, script tạo Admin với email mặc định `admin@omni.test` và mật khẩu `OmniAdmin2026!`. Các vai trò còn lại dùng email/mật khẩu như bảng trên. Trước khi chia sẻ triển khai, vô hiệu hóa các tài khoản test hoặc đổi toàn bộ mật khẩu bằng tài khoản admin riêng.
+
+Trên database cục bộ hiện tại, `admin@omni.test` **không đăng nhập được** vì email Admin đã đổi thành `khaipham111005@gmail.com`. `npm run db:dev-accounts` không tạo thêm Admin mặc định nếu đã có Admin đang hoạt động. Khi triển khai, đổi mật khẩu test công khai trước khi bật email thật.
+
+Chạy npm run db:migrate và npm run db:generate trước khi khởi động bản mới. Mở UI, tạo quản trị viên đầu tiên (tên, email, mật khẩu ít nhất 12 ký tự). Mật khẩu ứng dụng độc lập với mật khẩu PostgreSQL. Bootstrap đóng sau khi có user đầu tiên. Sau đó admin tạo thành viên và cấp vai trò trong **Thành viên & phân quyền**. API cần session cookie; mutation cần X-CSRF-Token (UI tự gửi). Chưa cấu hình PostgreSQL thì đăng nhập báo lỗi, không chạy các API dữ liệu ở chế độ không bảo vệ.
+
+**Lịch sử hoạt động** giữ người thực hiện/thời gian/thao tác; phiên bản workspace cũ có thể khôi phục bởi admin. Các bảng studio_plan_history/studio_delivery_history giữ thay đổi lịch và trạng thái lượt đăng. **Dữ liệu chức năng** quản lý workflow, số liệu, traffic, báo cáo, thư viện ảnh, nhãn, cấu hình và phiếu duyệt; có nút nhập dữ liệu trình duyệt cũ, merge theo id không ghi đè bản DB. Tắt/mở backend không xóa các bảng này. localStorage riêng theo origin nên nhập ở đúng URL từng dùng. Hoạt động đã mất trước khi audit được thêm không thể tự tái tạo.
+
+| Lệnh                  | Mục đích                                                 |
+| --------------------- | -------------------------------------------------------- |
+| npm run db:migrate    | Migration có ledger/checksum + backfill bảo toàn dữ liệu |
+| npm run db:backup     | pg_dump vào BE/.data/backups                             |
+| npm run db:introspect | Đồng bộ Prisma model từ schema SQL (chỉ đọc)             |
+| npm run db:generate   | Tạo Prisma Client                                        |
+| npm run db:validate   | Kiểm tra Prisma schema                                   |
+| npm run test:database | Test PostgreSQL trong schema riêng; provider mock        |
+
+Chi tiết 35 models, ánh xạ màn hình/API, vai trò và rollback: [DATABASE-ARCHITECTURE.md](DATABASE-ARCHITECTURE.md). Prisma CHECK/trigger/partial index được giữ trong SQL; không dùng Prisma reset/db push trên database hiện có. Graph API ngoài Facebook, SERP, gửi chat và thực thi n8n/RPA cần adapter/config riêng; ghi dữ liệu nội bộ không có nghĩa đã chạy hoặc đồng bộ dịch vụ.
 
 ## Techstack
 
 - Frontend: React 19, Vite 8, Lucide React, CSS token và biểu đồ SVG.
 - Backend: Node.js / Express 5, Axios, dotenv.
-- Database: PostgreSQL 17, driver pg, snapshot JSONB có kiểm soát phiên bản.
+- Database: PostgreSQL 17+ (máy hiện tại 18), pg + Prisma 6.19.3, bảng nghiệp vụ và lịch sử có kiểm soát phiên bản.
 - Workflow: n8n self-hosted qua Docker Compose, workflow duyệt nội dung mẫu.
 - RPA: Robot Framework + SeleniumLibrary, kịch bản smoke test mẫu.
 - API: Swagger UI / OpenAPI 3, collection Postman.
@@ -99,46 +144,90 @@ Chế độ này dùng một tiến trình Express cho cả API và file tĩnh R
 
 ## Màn hình
 
-| Màn hình                | Thao tác prototype                                            |
-| ----------------------- | ------------------------------------------------------------- |
-| Tổng quan               | KPI, biểu đồ, ngân sách, mở chiến dịch/bài sắp đăng           |
-| Lịch nội dung           | Tuần/tháng, chuyển kỳ, lọc kênh/trạng thái, tạo bài từ ô ngày |
-| Hộp thư đa kênh         | Tìm/lọc, xem khách hàng, lưu phản hồi demo, đánh dấu xử lý    |
-| Cài đặt tài khoản       | Thêm/sửa/xóa bản ghi quản trị                                 |
-| Quản lý kênh            | Bảng/thẻ, thêm/sửa/xóa kênh demo                              |
-| Hiệu suất & ngân sách   | Chọn kỳ/kênh, biểu đồ, ngân sách chiến dịch, CSV              |
-| Thống kê traffic kênh   | Chọn kỳ/kênh, nguồn truy cập, bảng/CSV                        |
-| Quản lý chiến dịch      | Thêm/sửa/xóa, lọc trạng thái, ngân sách và tiến độ            |
-| Quản lý bài viết        | Nhiều kênh, preview, ảnh, bình luận, nháp/duyệt/lịch          |
-| Traffic khách hàng      | Khách hàng, nguồn, truy cập, phân loại lead                   |
-| Quản lý quảng cáo       | Bản ghi quảng cáo, ngân sách, CTR và lượt nhấp demo           |
-| Thông tin kênh bài viết | Tiếp cận, tương tác, chi tiết bài đã đăng                     |
-| Thứ hạng từ khóa Omni   | Theo dõi từ khóa và tăng/giảm hạng demo                       |
-| gCompare                | So sánh đối thủ, traffic và điểm hiển thị demo                |
-| gCheck                  | Form, loading, kết quả mô phỏng và lịch sử                    |
-| Workflow & RPA          | Mở n8n, tải kịch bản Robot, thông tin tích hợp                |
+| Màn hình                | Thao tác prototype                                                              |
+| ----------------------- | ------------------------------------------------------------------------------- |
+| Tổng quan               | KPI, biểu đồ, ngân sách, mở chiến dịch/bài sắp đăng                             |
+| Lịch nội dung           | Tuần/tháng, chuyển kỳ, lọc kênh/trạng thái, tạo bài từ ô ngày                   |
+| Hộp thư đa kênh         | Tìm/lọc, xem khách hàng, lưu phản hồi demo, đánh dấu xử lý                      |
+| Cài đặt tài khoản       | Thêm/sửa/xóa bản ghi quản trị                                                   |
+| Quản lý kênh            | Bảng/thẻ, thêm/sửa/xóa kênh demo                                                |
+| Hiệu suất & ngân sách   | Chọn kỳ/kênh, biểu đồ, ngân sách chiến dịch, CSV                                |
+| Thống kê traffic kênh   | Chọn kỳ/kênh, nguồn truy cập, bảng/CSV                                          |
+| Quản lý chiến dịch      | Thêm/sửa/xóa, lọc trạng thái, ngân sách và tiến độ                              |
+| Quản lý bài viết        | Nhiều kênh, preview, ảnh, bình luận, nháp/duyệt/lịch                            |
+| Traffic khách hàng      | Khách hàng, nguồn, truy cập, phân loại lead                                     |
+| Quản lý quảng cáo       | Bản ghi quảng cáo, ngân sách, CTR và lượt nhấp demo                             |
+| Thông tin kênh bài viết | Tiếp cận, tương tác, chi tiết bài đã đăng                                       |
+| Thứ hạng từ khóa Omni   | Theo dõi từ khóa và tăng/giảm hạng demo                                         |
+| gCompare                | So sánh đối thủ, traffic và điểm hiển thị demo                                  |
+| gCheck                  | Form, loading, kết quả mô phỏng và lịch sử                                      |
+| Workflow & RPA          | Theo dõi email duyệt bài, chạy Playwright chụp Dashboard/xuất CSV; cấu hình n8n |
 
 Bảng hỗ trợ tìm kiếm, lọc kênh, sort, phân trang và CSV. Có xác nhận xóa, loading/empty/error, modal native hỗ trợ Escape/focus, mobile sidebar thu gọn và inbox một cột. Bảng/lịch cuộn trong vùng riêng khi hẹp.
 
 ## PostgreSQL và n8n
 
-Cần Docker Desktop chạy Linux containers. Tạo `BE/.env` từ mẫu, thay N8N_ENCRYPTION_KEY bằng chuỗi ngẫu nhiên dài và cấu hình mật khẩu local. Chạy tại gốc:
+Cần Docker Desktop chạy Linux containers. Tạo `BE/.env` từ mẫu, thay N8N_ENCRYPTION_KEY bằng chuỗi ngẫu nhiên dài và cấu hình mật khẩu local. **Chỉ khi máy chưa có PostgreSQL ở cổng 5432**, chạy tại gốc:
 
 ```powershell
 docker compose --env-file BE/.env -f BE/compose.yaml up -d
 ```
 
-PostgreSQL ở localhost:5432, user omni, database omni. Với mật khẩu mẫu dành cho local:
+Trong chế độ này, PostgreSQL ở localhost:5432, user omni, database omni. Với mật khẩu mẫu dành cho local:
 
 ```env
 DATABASE_URL=postgresql://omni:omni_local_dev@localhost:5432/omni
 ```
 
-Khởi động lại Express. UI báo nguồn lưu PostgreSQL. GET /api/workspace khởi tạo seed khi DB trống; PUT lưu snapshot JSONB và tăng version. Phiên bản cũ trả 409, yêu cầu tải lại để tránh ghi đè. Đây là mô hình một workspace prototype, chưa phải schema quan hệ/đa tenant hoàn chỉnh.
+Khởi động lại Express. UI báo nguồn lưu PostgreSQL. GET /api/workspace khởi tạo workspace rỗng khi DB trống; PUT lưu snapshot JSONB và tăng version. Phiên bản cũ trả 409, yêu cầu tải lại để tránh ghi đè. Đây là một workspace chung có bảng quan hệ và phân quyền thành viên; chưa cách ly nhiều tenant.
 
-n8n ở http://localhost:5678. Hoàn tất thiết lập local và import BE/workflows/content-review.n8n.json. Workflow không active; Manual Trigger chỉ chuẩn bị bản ghi chờ con người duyệt. Chưa có worker tích hợp UI hoặc tự đăng. BE/db/init.sql tạo database n8n riêng khi volume PostgreSQL khởi tạo lần đầu. Không xóa volume nếu cần giữ dữ liệu.
+n8n ở http://localhost:5678. Hoàn tất thiết lập local và import BE/workflows/content-review.n8n.json. Workflow không active; Manual Trigger chỉ chuẩn bị bản ghi chờ con người duyệt. Workflow n8n chưa tích hợp tự đăng; worker Publishing riêng được mô tả bên dưới. BE/db/init.sql tạo database n8n riêng khi volume PostgreSQL khởi tạo lần đầu. Không xóa volume nếu cần giữ dữ liệu.
 
-Compose dùng image n8n latest cho local; ghim tag/digest đã kiểm tra trước khi triển khai ổn định. Docker Engine chưa chạy trên máy kiểm tra, nên PostgreSQL thật và việc chạy/import workflow n8n chưa được xác minh. Test repository/API dùng mock, không thay thế integration test thật.
+Compose dùng image n8n latest cho local; ghim tag/digest đã kiểm tra trước khi triển khai ổn định. PostgreSQL thật đã được kiểm tra bằng migration và integration test; các workflow n8n vẫn chưa được import hoặc kích hoạt.
+
+### Email duyệt bài và RPA Playwright
+
+#### 1. Khởi động n8n
+
+Máy đã có PostgreSQL chạy trên Windows tại cổng 5432 (như máy phát triển hiện tại): khởi động **chỉ n8n**, tránh hai PostgreSQL tranh cổng. Chạy tại gốc repo:
+
+```powershell
+docker compose --env-file BE/.env -f BE/compose.n8n-host.yaml up -d
+docker compose --env-file BE/.env -f BE/compose.n8n-host.yaml ps
+```
+
+Mở http://localhost:5678. Ở lần đầu, n8n có thể chuyển đến `/setup` để tạo **owner account của n8n**; tài khoản này độc lập với Admin Omni Studio và PostgreSQL. n8n lưu cấu hình/credential đã mã hóa trong volume `n8n_host_data`; giữ nguyên volume và `N8N_ENCRYPTION_KEY` khi khởi động lại. Dừng dịch vụ bằng `docker compose --env-file BE/.env -f BE/compose.n8n-host.yaml down` (không thêm `-v`). Nếu trang chưa mở, xem `docker compose --env-file BE/.env -f BE/compose.n8n-host.yaml logs --tail 80 n8n` và kiểm tra cổng 5678.
+
+Compose gốc `BE/compose.yaml` dành cho máy **chưa có PostgreSQL** và muốn tạo PostgreSQL+n8n mới. Chỉ chọn một chế độ; không chạy cả hai Compose cùng lúc. Không xóa volume PostgreSQL hiện có để xử lý lỗi n8n.
+
+#### 2. Chuẩn bị database và người nhận
+
+Chạy `npm run db:migrate` để thêm migration 009–010. Khi Editor gửi bài chờ duyệt, PostgreSQL xếp một email cho mỗi Admin/Manager đang hoạt động có địa chỉ thật; địa chỉ `.test` bị loại. n8n có thể nhắc trước giờ hẹn 3 giờ và khi chờ duyệt quá 2 ngày, miễn bài vẫn `pending` và chưa quá giờ. Duyệt bài vẫn là thao tác của Admin/Manager; email và RPA không tự duyệt hay tự đăng Facebook. Trạng thái email **Chờ gửi / Đang gửi / Đã gửi** hiển thị ở **Workflow & RPA**.
+
+Trên database cục bộ hiện tại, Admin nhận thư là `khaipham111005@gmail.com`; dev khác phải đặt email thật cho Admin/Manager của database họ. Email của tài khoản quản trị n8n **không** quyết định người nhận. Kiểm tra trong Omni Studio → **Thành viên & phân quyền** trước khi bật gửi thư.
+
+#### 3. Tạo hai credential trong n8n
+
+Trong n8n → **Credentials** (hoặc mở node rồi chọn **Create new credential**):
+
+1. **Postgres** cho các node PostgreSQL của workflow: Host `host.docker.internal` nếu n8n chạy Docker và PostgreSQL chạy trên Windows host; Port `5432`; Database là tên database ứng dụng trong `DATABASE_URL` (máy hiện tại `OmniChannel`); User/Password là tài khoản PostgreSQL tương ứng. `localhost` trong container chỉ chính container n8n, không phải Windows host. Kiểm tra kết nối trước khi tiếp tục. Nếu PostgreSQL nằm trong Compose gốc, dùng Host `postgres` và database ứng dụng `omni`. Database `n8n` của Compose gốc chỉ lưu cấu hình n8n, không chứa bài viết Omni Studio. Nếu kết nối từ container bị từ chối dù BE kết nối được, kiểm tra `listen_addresses`, `pg_hba.conf` và quyền truy cập từ mạng Docker thay vì đổi mật khẩu một cách mù quáng.
+2. **Send Email (SMTP)** cho node gửi thư: User là địa chỉ _gửi_; Password là mật khẩu SMTP/app password của hộp thư gửi; Host/Port theo nhà cung cấp. Cổng 465 bật **SSL/TLS**; cổng 587 tắt công tắc SSL/TLS để dùng **STARTTLS** (không bật **Disable STARTTLS**). **From Email** trong node phải là địa chỉ nhà cung cấp cho phép gửi, ví dụ `Omni Studio <sender@example.com>`. **To Email** giữ biểu thức `{{ $json.recipient_email }}` để lấy người nhận Admin/Manager từ database. Địa chỉ gửi có thể khác `khaipham111005@gmail.com`.
+
+Nếu dùng Gmail làm **địa chỉ gửi**, tạo Google App Password sau khi bật xác minh hai bước, rồi nhập mật khẩu ứng dụng đó vào ô Password của SMTP credential; không dùng mật khẩu đăng nhập Gmail thông thường. Gmail SMTP: Host `smtp.gmail.com`, Port `465`, bật SSL/TLS; User là địa chỉ Gmail gửi. Google chỉ hiển thị App Password lúc tạo; nếu chưa lưu thì tạo cái mới. Với SMTP nhà cung cấp khác, dùng thông số chính thức của nhà cung cấp. Không đưa mật khẩu, App Password hay `DATABASE_URL` vào README, Git, ảnh chụp hoặc chat. Xem [n8n Send Email credential](https://docs.n8n.io/integrations/builtin/credentials/send-email/) và [Google App Password](https://support.google.com/accounts/answer/185833?hl=en).
+
+#### 4. Thử SMTP riêng, rồi bật workflow email
+
+Tạo workflow tạm trong n8n gồm **Manual Trigger → Send Email**. Chọn SMTP credential, đặt **To Email** là địa chỉ nhận thử (trên máy hiện tại `khaipham111005@gmail.com`), Subject `Kiểm tra Omni Studio`, nội dung ngắn, rồi **Execute workflow**. Kiểm tra Inbox/Spam và **Executions** của n8n. Bước này xác minh SMTP mà chưa lấy/hủy trạng thái email trong hàng đợi bài viết. Xóa hoặc giữ workflow thử ở trạng thái chưa Publish sau khi kiểm tra.
+
+Sau khi thư thử đến, tạo workflow mới và chọn menu ba chấm ở canvas → **Import from File** → [post-approval-email.n8n.json](BE/workflows/post-approval-email.n8n.json). Gán Postgres credential cho **cả hai node Postgres** (`Queue reminders and claim email`, `Mark email sent`), gán SMTP credential cho `Send approval email`, sửa **From Email** đang là placeholder `configure-smtp-sender@example.com`. Giữ biểu thức **To Email**. Kiểm tra các node không báo thiếu credential, rồi **Publish** để lịch 5 phút bắt đầu chạy; chỉ lưu bản nháp trong n8n chưa kích hoạt lịch. Tạo một bài chờ duyệt có giờ đăng tương lai bằng tài khoản Editor, đợi tối đa khoảng 5 phút, kiểm tra email, n8n **Executions** và Omni Studio → **Workflow & RPA → Thông báo gần đây**. Không bấm duyệt/đăng thật chỉ để thử email. Xem [n8n import workflow](https://docs.n8n.io/build/manage-workflows/export-and-import/) và [publish workflow](https://docs.n8n.io/build/understand-workflows/save-and-publish-workflows/).
+
+Workflow chỉ đánh dấu `sent` sau node SMTP thành công. Nếu node SMTP lỗi hoặc n8n dừng ở trạng thái `sending`, kiểm tra **Executions** và hộp thư trước khi thử gửi lại; không chạy lại cả workflow một cách mù quáng vì có thể gửi trùng. Nếu không có thư, kiểm tra: credential SMTP, From Email, Postgres credential, trạng thái **Published**, người nhận Admin/Manager đang active, bài còn `pending` và chưa quá giờ, Inbox/Spam. Không đặt địa chỉ `.test` làm người nhận thật.
+
+#### 5. Chạy RPA theo lịch (tùy chọn)
+
+Import thêm [workflow chụp Dashboard](BE/workflows/rpa-dashboard.n8n.json) (08:00 hằng ngày) và [workflow xuất CSV](BE/workflows/rpa-weekly-csv.n8n.json) (08:15 thứ Hai), gán PostgreSQL credential. Hai workflow chỉ xếp việc. Điền `RPA_EMAIL`/`RPA_PASSWORD` của một tài khoản Admin/Manager riêng vào `BE/.env`, chạy API/FE cùng origin ở cổng cấu hình và khởi động `npm run worker:rpa` trong terminal riêng. Playwright dùng Chrome trên máy chạy worker, mở UI để chụp Dashboard hoặc bấm nút xuất CSV, lưu file vào `BE/rpa/output/<run-id>/`; tải file từ **Workflow & RPA**. Có thể dùng nút **Chụp Dashboard** và **Xuất CSV** tại UI để kiểm tra thủ công mà không cần bật n8n. CSV là bản xuất nghiệp vụ, không thay thế backup PostgreSQL. Không chạy publishing worker để thử RPA.
+
+Các workflow JSON trong repo mặc định chưa Publish. Đến nay mới kiểm thử UI/Playwright và hàng đợi PostgreSQL; việc n8n gửi email thật cần credential do chủ hộp thư tự nhập và kiểm tra trong n8n.
 
 ## Robot Framework
 
@@ -161,7 +250,7 @@ Cần WebDriver/Selenium Manager hoạt động. Kịch bản mẫu chưa chạy
 - GET /api/workspace trả mode, snapshot và version.
 - PUT /api/workspace nhận `{ "data": <workspace>, "version": <phiên bản đã đọc> }`.
 
-Collection Postman chỉ có health, workspace, schema và validation Facebook rỗng; Collection Runner không đăng thật.
+Collection Postman có health, workspace, schema, validation Facebook rỗng và các GET social. Điền accountId từ GET social/accounts để đọc bài Page; Collection Runner không đăng thật.
 
 API cũ POST /api/publish/facebook nhận:
 
@@ -169,7 +258,7 @@ API cũ POST /api/publish/facebook nhận:
 { "noiDungBaiViet": "Nội dung đã được duyệt" }
 ```
 
-Cần PAGE_ID và PAGE_ACCESS_TOKEN trên server. Trong trình soạn bài chọn **Tùy chọn → Đăng Facebook thật**, sau đó xác nhận. Chỉ gửi văn bản ngay lên Page trong .env; không gửi ảnh, bình luận hoặc kênh khác. Thiếu cấu hình trả 503, rỗng/sai kiểu trả 400, lỗi nhà cung cấp/timeout trả 500. Graph API v21.0 giữ từ mã gốc; cần xác minh hỗ trợ và quyền Meta trước khi dùng thật. Không đăng bài thật trong kiểm thử.
+Cần PAGE_ID và PAGE_ACCESS_TOKEN trên server. Trong trình soạn bài chọn **Tùy chọn → Đăng Facebook thật**, sau đó xác nhận. Gửi văn bản và một ảnh tùy chọn (JPG/PNG/WebP/GIF tối đa 1 MB) lên Page đã chọn; không gửi bình luận hoặc đăng sang nền tảng chưa tích hợp. Thiếu cấu hình trả 503, rỗng/sai kiểu trả 400, lỗi nhà cung cấp/timeout trả 502, token hết hạn 401, thiếu quyền 403. Graph API v21.0 giữ từ mã gốc; cần xác minh hỗ trợ và quyền Meta trước khi dùng thật. Không đăng bài thật trong kiểm thử.
 
 ## Kiểm tra
 
@@ -184,4 +273,62 @@ Node test runner kiểm tra schema/persistence, lọc đa kênh, CSV an toàn, v
 
 ## Giới hạn
 
-UI và lưu dữ liệu quản trị hoạt động. Analytics, OAuth/kết nối kênh, chat và SERP là demo. Lịch/lặp lại chỉ lưu cấu hình, chưa có worker thực thi. Ảnh mẫu preview không được đính kèm nếu chưa upload ảnh riêng. Control định dạng dùng Markdown để preview; API Facebook gửi nguyên văn. Chưa có authentication, phân quyền, nguồn số liệu thật hoặc AI. Server dành cho phát triển local; cần hoàn thiện các phần này trước khi triển khai nhiều người dùng.
+UI và lưu dữ liệu quản trị hoạt động. Analytics, chat và SERP chưa có nguồn/tích hợp thật. Facebook đã có danh tính Page, quản lý bài, đăng ảnh và luồng OAuth; các nền tảng khác chưa có adapter. Lịch workspace cục bộ chỉ lưu cấu hình; lịch PostgreSQL có worker Publishing riêng opt-in. Ảnh chỉ được gửi khi người dùng đính kèm file hợp lệ. Control định dạng dùng Markdown để preview; API Facebook gửi nguyên văn. Chưa có authentication, phân quyền, nguồn số liệu thật hoặc AI. Server dành cho phát triển local; cần hoàn thiện các phần này trước khi triển khai nhiều người dùng.
+
+Workspace mới không tự nạp dữ liệu mẫu. FE loại các bản ghi mẫu nguyên bản khi đọc dữ liệu cũ, giữ bản ghi người dùng tạo/chỉnh sửa và bài có facebookPostId. Dữ liệu local được ghi lại sau khi tải; snapshot PostgreSQL cũ được lọc trên FE và chỉ ghi lại khi người dùng lưu thay đổi, không tự xóa dữ liệu DB. seed() chỉ còn dùng cho fixture kiểm thử/nhận diện mẫu cũ. Nút khôi phục dữ liệu demo và ảnh preview mẫu đã bỏ.
+
+## Liên kết Facebook và quản lý bài trên Page
+
+Màn hình **Liên kết tài khoản**, **Cài đặt tài khoản** và **Quản lý kênh** hiển thị cùng danh sách danh tính mạng xã hội do backend xác minh. Token hợp lệ trong BE/.env tự tạo kết nối Facebook: tên, avatar và Page ID được lấy từ Meta, không lấy tên mẫu hoặc tên tài khoản cá nhân. Chỉ Page có trạng thái kết nối mới xuất hiện trong trình soạn. Hiện adapter thực thi chỉ có Facebook; Instagram/Google/TikTok/YouTube/Zalo hiển thị chưa hỗ trợ, không được chọn để đăng.
+
+Trong **Quản lý bài viết → Bài trên nền tảng**, chọn Page để tải bài đã đăng trực tiếp từ Facebook, gồm bài được tạo bằng Facebook/Business Suite. Dùng **Tải thêm bài cũ** để xem các trang tiếp theo (25 bài mỗi lần); không chỉ hiển thị bài do Omni Studio tạo. Có link mở bài, sửa văn bản và xóa bài với xác nhận. API quyền/loại bài có thể từ chối thao tác; lỗi được hiển thị. Sửa ảnh/video, nháp/lịch tạo trong Meta, comment, video/reels và insights chưa được tích hợp. Tab **Nháp & lịch trong workspace** tách dữ liệu cục bộ/PostgreSQL; lỗi DB không chặn đọc bài Page nhưng không âm thầm ghi đè dữ liệu local.
+
+Để cấp quyền qua Facebook Login thay vì nhập token thủ công, điền BE/.env:
+
+```env
+FACEBOOK_APP_ID=APP_ID_CUA_BAN
+FACEBOOK_APP_SECRET=APP_SECRET_CUA_BAN
+FACEBOOK_REDIRECT_URI=http://localhost:3000/api/social/facebook/callback
+SOCIAL_UI_ORIGIN=http://localhost:5173
+SOCIAL_TOKEN_ENCRYPTION_KEY=KHOA_32_BYTE_BASE64
+GRAPH_API_VERSION=v21.0
+```
+
+SOCIAL_UI_ORIGIN là origin FE bạn dùng: 5173 khi chạy Vite hoặc 3000 khi dùng bản build; nếu thử trên 3001 thì thay URL tương ứng. FACEBOOK_REDIRECT_URI luôn trỏ vào backend và phải khớp chính xác **Valid OAuth Redirect URIs** trong cấu hình Facebook Login của app Meta. Khởi động lại BE sau khi sửa .env. Backend đã thêm khóa mã hóa ngẫu nhiên nếu file hiện có thiếu khóa; đừng thay khóa khi đã có token lưu. Có thể tạo khóa mới cho môi trường mới bằng `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`. Giữ App Secret/khóa/token riêng trên backend, không dùng VITE_ hoặc commit file.
+
+Bấm **Liên kết Facebook**, cấp các quyền pages_show_list/pages_read_engagement/pages_manage_posts ở trang Meta, rồi chọn Page muốn quản lý. Callback có state ngẫu nhiên, cookie HttpOnly/SameSite và phiên 10 phút; code OAuth đổi sang User Token dài hạn trên backend rồi lấy Page Token. Frontend chỉ nhận ID/tên/avatar để chọn Page; token không đi vào localStorage hoặc workspace. Page Token được mã hóa AES-256-GCM tại BE/.data/social-tokens.enc (gitignored). Luồng chuẩn lấy Page Token tham khảo [collection chính thức Meta](https://www.postman.com/meta/facebook/request/bqfxwbp/get-access-tokens-of-pages-you-manage). Quyền/app review và phạm vi Page vẫn phụ thuộc cấu hình Meta; không tự cấp thêm quyền hoặc đưa app live.
+
+**Đăng ảnh:** trong trình soạn chọn Page đã liên kết, thêm một ảnh và nội dung, rồi Tùy chọn → Đăng ngay lên các Page → xác nhận. Backend kiểm tra MIME, magic bytes và giới hạn 1 MB, chuyển ảnh thành binary multipart lên /photos với caption. Không có ảnh thì dùng /feed. requestId chống gửi lặp trong cùng tiến trình BE trong 24 giờ; không phải cơ chế bền vững qua restart. Nếu request timeout/kết quả chưa rõ, kiểm tra tab Bài trên nền tảng trước khi đăng lại. Lịch cục bộ chưa tự đăng; xem phần Publishing về lịch server và worker.
+
+Đã xác minh đọc tên/avatar ITM và 4 bài Page thật; test đăng ảnh, sửa/xóa và OAuth dùng mock. Chưa cấp quyền OAuth thực tế do cấu hình App ID/Secret chưa hoàn tất; chưa đăng thêm ảnh/bài hoặc sửa/xóa bài thật để kiểm tra tính năng mới.
+
+Trong tab **Bài trên nền tảng**, bộ lọc hiển thị Facebook, Instagram, Google, TikTok, YouTube và Zalo cùng số tài khoản đã kết nối hoặc trạng thái chưa tích hợp. Chọn nền tảng rồi chọn tài khoản để xem bài viết. Hiện backend chỉ hỗ trợ Facebook Page; các nền tảng còn lại cần adapter API và luồng cấp quyền riêng, chưa thể đăng hay đồng bộ bài. Nút **Quản lý kết nối** mở màn hình cấu hình liên kết.
+
+# Lịch và kế hoạch đăng bài
+
+Quản lý bài viết mở tab **Lịch & kế hoạch**: tài khoản thật bên trái, lịch theo giờ bên phải, đổi Ngày/Tuần/Tháng và múi giờ GMT+7/GMT+8/UTC. Nhấp ô giờ để soạn; menu trên thẻ cho phép sửa bản soạn hoặc hủy các lượt server còn chờ. Tab **Bài trên nền tảng** giữ khả năng đọc/sửa/xóa bài thật trên Facebook.
+
+Composer mới chọn nhiều Page đã xác minh, tối đa 10 nội dung nối tiếp, ảnh riêng từng nội dung, đếm ký tự, preview theo nền tảng, độ trễ và lặp ngày/tuần tối đa 30 lượt. Reply/bình luận chỉ lưu bản soạn; server từ chối scheduled reply bằng 422. Chỉ Facebook có adapter thực thi; preview LinkedIn/X hoặc các kênh khác không cấp khả năng đăng thật.
+
+Kho kế hoạch server dùng hai bảng **publishing_plans** và **publishing_deliveries**, tách khỏi snapshot workspace. Chạy tại gốc:
+
+```powershell
+npm run db:migrate
+```
+
+Kiểm tra `GET /api/publishing/status`: `ready=true` khi DB và migration dùng được. Khi chưa sẵn sàng, UI cho lưu bản soạn/lịch vào workspace; lịch này **không tự đăng**. Không âm thầm chuyển hoặc xóa dữ liệu cũ. `PUT` kế hoạch yêu cầu version; 409 phải tải lại.
+
+Nếu workspace cũng tải lỗi, composer giữ nguyên nội dung và báo nguyên nhân, không chuyển sang lưu cục bộ tự động. PostgreSQL `28P01` nghĩa là thông tin đăng nhập không được chấp nhận: sửa `DATABASE_URL` trong `BE/.env`, dùng đúng tài khoản/mật khẩu và tên database (ví dụ `OmniChannel`), rồi khởi động lại backend. Ký tự đặc biệt trong mật khẩu phải URL-encode (`@` → `%40`, `#` → `%23`, `%` → `%25`). Sau khi kết nối được, chạy `npm run db:migrate`, kiểm tra lại `ready=true`, rồi mới lưu lịch và chạy worker. Không gửi mật khẩu/token vào chat.
+
+Để chủ động thực thi lịch thật, đặt `PUBLISHING_WORKER_ENABLED=true` trong BE/.env, khởi động lại BE, rồi chạy terminal thứ ba:
+
+```powershell
+npm run worker:publishing
+```
+
+Worker là tiến trình riêng; flag `workerEnabled` trên API chỉ là cấu hình, không phải heartbeat. Mặc định tắt và không chạy trong kiểm thử. Worker nhận job đến hạn từ PostgreSQL; lưu kết quả theo từng Page/nội dung/lượt lặp. Hủy kế hoạch chỉ hủy queued; running có thể đã gửi. Timeout/gián đoạn được đánh dấu **unknown**, không tự retry; kiểm tra Page trước khi tạo kế hoạch mới. Đăng ngay từ composer chỉ gửi bài chính lên các Page đã chọn sau xác nhận, không gửi chuỗi/lặp lại.
+
+Migration trên PostgreSQL cục bộ và `npm run test:database` đã chạy thành công; kiểm thử Facebook trong test vẫn dùng mock, không đăng ảnh thật. Xem [bản thảo kiến trúc](PUBLISHING-ARCHITECTURE.md) để biết trạng thái, thiết kế dữ liệu và giới hạn rollout.
+Tên kế hoạch trong composer là tên quản lý nội bộ, không phải tiêu đề riêng được gửi lên Facebook. Có thể bỏ trống: FE và API kế hoạch tự lấy dòng đầu nội dung làm tên (tối đa 180 ký tự). Nội dung bài chính vẫn bắt buộc; ô nối tiếp trống không có ảnh được bỏ qua khi lưu. Khi sửa bản soạn, **Lưu thay đổi** giữ trạng thái hiện tại; **Đổi lịch đăng** là thao tác riêng.
+
+Admin có thể đặt lại mật khẩu thành viên trong Thành viên & phân quyền, cần xác nhận mật khẩu admin hiện tại; tất cả phiên của thành viên được thu hồi. Người dùng tự đổi mật khẩu từ menu Đổi mật khẩu.

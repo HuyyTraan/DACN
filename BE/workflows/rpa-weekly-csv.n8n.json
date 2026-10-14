@@ -1,0 +1,34 @@
+{
+    "name": "Omni Studio · Weekly CSV export",
+    "active": false,
+    "nodes": [
+        {
+            "id": "schedule",
+            "name": "Monday 08:15",
+            "type": "n8n-nodes-base.scheduleTrigger",
+            "typeVersion": 1.2,
+            "position": [240, 300],
+            "parameters": {
+                "rule": { "interval": [{ "field": "cronExpression", "expression": "15 8 * * 1" }] }
+            }
+        },
+        {
+            "id": "queue",
+            "name": "Queue Playwright CSV export",
+            "type": "n8n-nodes-base.postgres",
+            "typeVersion": 2.5,
+            "position": [500, 300],
+            "parameters": {
+                "operation": "executeQuery",
+                "query": "INSERT INTO studio_rpa_runs(kind,status,scheduled_on) VALUES('weekly_csv','queued',(now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date) ON CONFLICT DO NOTHING RETURNING id"
+            }
+        }
+    ],
+    "connections": {
+        "Monday 08:15": {
+            "main": [[{ "node": "Queue Playwright CSV export", "type": "main", "index": 0 }]]
+        }
+    },
+    "settings": { "executionOrder": "v1", "timezone": "Asia/Ho_Chi_Minh" },
+    "pinData": {}
+}

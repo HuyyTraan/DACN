@@ -1,6 +1,7 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App.jsx';
+import AuthGate from './Auth.jsx';
 import './styles.css';
 
 class ErrorBoundary extends React.Component {
@@ -22,6 +23,6 @@ class ErrorBoundary extends React.Component {
 }
 createRoot(document.getElementById('root')).render(
     <ErrorBoundary>
-        <App />
+        <AuthGate>{(user, onLogout) => <App user={user} onLogout={onLogout} />}</AuthGate>
     </ErrorBoundary>
 );

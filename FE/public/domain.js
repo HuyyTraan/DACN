@@ -1,8 +1,17 @@
 (function (root) {
     'use strict';
     const key = 'omni-studio-v1';
-    const today = '2026-10-10';
-    const platforms = ['Facebook', 'Instagram', 'Google', 'TikTok', 'YouTube', 'Zalo'];
+    const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Ho_Chi_Minh' });
+    const platforms = [
+        'Facebook',
+        'Instagram',
+        'Google',
+        'TikTok',
+        'YouTube',
+        'Zalo',
+        'LinkedIn',
+        'X'
+    ];
     const accountNames = [
         'Linh Nguyễn',
         'Minh Anh',
@@ -13,7 +22,7 @@
     ];
     function seed() {
         return {
-            accounts: platforms.map((platform, i) => ({
+            accounts: platforms.slice(0, 6).map((platform, i) => ({
                 id: `acc-${i + 1}`,
                 name: accountNames[i],
                 platform,
@@ -22,7 +31,7 @@
                 owner: i < 3 ? 'Linh Nguyễn' : 'Minh Anh',
                 created: '2026-10-01'
             })),
-            channels: platforms.map((platform, i) => ({
+            channels: platforms.slice(0, 6).map((platform, i) => ({
                 id: `ch-${i + 1}`,
                 name: [
                     'Omni Studio',
@@ -489,9 +498,17 @@
             ].join('\r\n')
         );
     }
+    function postTitle(name, content) {
+        return (
+            name?.trim() ||
+            content?.trim().split(/\r?\n/)[0].replace(/\s+/g, ' ').slice(0, 180) ||
+            'Bài viết mới'
+        );
+    }
     function validatePost(post) {
-        if (!post.name?.trim() || !post.content?.trim())
-            return 'Nhập tiêu đề và nội dung bài viết.';
+        if (!post.content?.trim()) return 'Nhập nội dung bài viết chính.';
+        if (post.name !== undefined && (typeof post.name !== 'string' || post.name.length > 180))
+            return 'Tên kế hoạch phải là văn bản, tối đa 180 ký tự.';
         if (!post.channels?.length) return 'Chọn ít nhất một kênh đăng.';
         const limits = {
             Facebook: 63206,
@@ -501,8 +518,27 @@
             Zalo: 2000,
             Google: 1500
         };
+        limits.LinkedIn = 3000;
+        limits.X = 280;
         const over = post.channels.find((channel) => post.content.length > limits[channel]);
         if (over) return `Nội dung vượt giới hạn ${limits[over]} ký tự của ${over}.`;
+        if ((post.comments || []).length > 9) return 'Tối đa 10 nội dung trong một chuỗi.';
+        if (
+            post.repeat &&
+            post.repeat !== 'Không lặp lại' &&
+            (!Number.isInteger(Number(post.repeatCount)) ||
+                Number(post.repeatCount) < 1 ||
+                Number(post.repeatCount) > 30)
+        )
+            return 'Số lượt lặp phải từ 1 đến 30.';
+        if (
+            (post.comments || []).some(
+                (item) =>
+                    (item.image && !item.text.trim()) ||
+                    post.channels.some((channel) => item.text.length > limits[channel])
+            )
+        )
+            return 'Nhập nội dung nối tiếp và kiểm tra giới hạn ký tự của từng kênh.';
         if (post.status === 'Đã lên lịch' && (!post.date || !post.time))
             return 'Chọn ngày và giờ đăng.';
         if (
@@ -517,10 +553,37 @@
     }
     function load(storage) {
         const raw = storage.getItem(key);
-        if (!raw) return seed();
+        if (!raw) return emptyWorkspace();
         const state = JSON.parse(raw);
         if (!validWorkspace(state)) throw new Error('Dữ liệu đã lưu không hợp lệ.');
-        return state;
+        return withoutDemo(state);
+    }
+    function emptyWorkspace() {
+        return Object.fromEntries(Object.keys(seed()).map((collection) => [collection, []]));
+    }
+    function withoutDemo(state) {
+        if (!validWorkspace(state)) throw new Error('Dữ liệu đã lưu không hợp lệ.');
+        const examples = seed();
+        // Remove only untouched factory records. Preserve user edits and published Facebook posts.
+        const sameValue = (a, b) => {
+            if (a === b) return true;
+            if (!a || !b || typeof a !== 'object' || typeof b !== 'object') return false;
+            const keys = Object.keys(a);
+            return (
+                keys.length === Object.keys(b).length &&
+                keys.every((key) => sameValue(a[key], b[key]))
+            );
+        };
+        return Object.fromEntries(
+            Object.entries(state).map(([collection, rows]) => [
+                collection,
+                rows.filter(
+                    (row) =>
+                        row.facebookPostId ||
+                        !examples[collection].some((example) => sameValue(row, example))
+                )
+            ])
+        );
     }
     function validWorkspace(data) {
         if (!data || typeof data !== 'object' || Array.isArray(data)) return false;
@@ -575,8 +638,36 @@
                             !Array.isArray(row.comments) ||
                             !row.comments.every(
                                 (c) =>
-                                    c && typeof c.text === 'string' && typeof c.delay === 'string'
+                                    c &&
+                                    typeof c.text === 'string' &&
+                                    typeof c.delay === 'string' &&
+                                    (c.kind === undefined || ['post', 'reply'].includes(c.kind)) &&
+                                    (!c.image ||
+                                        (typeof c.image === 'string' &&
+                                            /^data:image\/(jpeg|png|webp|gif);base64,/.test(
+                                                c.image
+                                            )))
                             ) ||
+                            (row.accountIds !== undefined &&
+                                (!Array.isArray(row.accountIds) ||
+                                    row.accountIds.length > 20 ||
+                                    !row.accountIds.every(
+                                        (id) => typeof id === 'string' && id.length <= 100
+                                    ))) ||
+                            (row.timezone !== undefined &&
+                                !['Asia/Ho_Chi_Minh', 'Asia/Singapore', 'UTC'].includes(
+                                    row.timezone
+                                )) ||
+                            (row.publishResults !== undefined &&
+                                (!Array.isArray(row.publishResults) ||
+                                    row.publishResults.length > 20 ||
+                                    !row.publishResults.every(
+                                        (r) =>
+                                            r &&
+                                            typeof r.accountId === 'string' &&
+                                            typeof r.accountName === 'string' &&
+                                            ['published', 'check-required'].includes(r.status)
+                                    ))) ||
                             (row.image &&
                                 !/^data:image\/(jpeg|png|webp|gif);base64,/.test(row.image)))
                     )
@@ -602,10 +693,13 @@
         today,
         platforms,
         seed,
+        emptyWorkspace,
+        withoutDemo,
         escape,
         filterRows,
         csv,
         validatePost,
+        postTitle,
         validWorkspace,
         save,
         load
