@@ -330,6 +330,35 @@ class PublishingRepository {
             return found.rows[0];
         });
     }
+    async claimNow(planId, deliveryId, version, actor) {
+        return this.transaction(async (client) => {
+            const found = await client.query(
+                "SELECT d.*,p.payload FROM publishing_deliveries d JOIN publishing_plans p ON p.id=d.plan_id WHERE p.id=$1 AND d.id=$2 AND p.version=$3 AND d.plan_version=p.version AND p.status='scheduled' AND d.status='queued' AND d.item_index=0 AND d.due_at > now()-interval '2 minutes' FOR UPDATE OF p,d SKIP LOCKED",
+                [planId, deliveryId, version]
+            );
+            if (!found.rows.length)
+                throw new PublishingError(
+                    409,
+                    'Lượt đăng đã thay đổi, quá hạn hoặc đang được xử lý. Tải lại lịch trước khi thử tiếp.'
+                );
+            await client.query(
+                "UPDATE publishing_deliveries SET status='running',started_at=now() WHERE id=$1",
+                [deliveryId]
+            );
+            await audit(
+                client,
+                actor,
+                'publish.manual.claimed',
+                'publishing_deliveries',
+                deliveryId,
+                null,
+                {
+                    planId
+                }
+            );
+            return found.rows[0];
+        });
+    }
     async finish(id, status, providerId, error) {
         await this.pool.query(
             'UPDATE publishing_deliveries SET status = $2, provider_post_id = $3, error = $4, finished_at = now() WHERE id = $1',
@@ -399,6 +428,15 @@ function publishingRouter({ repository, social, enabled = false }) {
             (req.actor?.role === 'editor' && !['draft', 'pending'].includes(plan.status))
         )
             throw new PublishingError(403, 'Chỉ người quản lý được lên lịch đăng.');
+        if (
+            req.actor?.role === 'editor' &&
+            plan.status === 'pending' &&
+            Date.parse(plan.scheduledAt) < Date.now() + 60 * 60 * 1000
+        )
+            throw new PublishingError(
+                403,
+                'Không có thẩm quyền gửi duyệt bài đăng trong vòng 1 giờ tới. Hãy chọn giờ đăng cách hiện tại ít nhất 1 giờ để Admin/Manager có thời gian nhận thông báo.'
+            );
         if (req.actor?.role === 'editor' && req.params.id) {
             const old = (
                 await repository.pool.query('SELECT status FROM publishing_plans WHERE id=$1', [
@@ -478,30 +516,59 @@ function publishingRouter({ repository, social, enabled = false }) {
             res.json(await repository.cancel(req.params.id, req.body.version, req.actor));
         })
     );
+    router.post(
+        '/plans/:id/deliveries/:deliveryId/publish-now',
+        handle(async (req, res) => {
+            if (req.actor && !['admin', 'manager'].includes(req.actor.role))
+                throw new PublishingError(403, 'Chỉ Admin/Manager được đăng ngay.');
+            if (
+                !uuid.test(req.params.id) ||
+                !uuid.test(req.params.deliveryId) ||
+                !Number.isInteger(req.body?.version) ||
+                req.body.version < 1
+            )
+                throw new PublishingError(400, 'ID hoặc phiên bản không hợp lệ.');
+            await repository.expireScheduled();
+            const delivery = await repository.claimNow(
+                req.params.id,
+                req.params.deliveryId,
+                req.body.version,
+                req.actor
+            );
+            res.json(await publishDelivery(repository, social, delivery));
+        })
+    );
     return router;
 }
-async function runOnce(repository, social) {
-    const delivery = await repository.claim();
-    if (!delivery) return false;
+async function publishDelivery(repository, social, delivery) {
     const item = delivery.payload.items[delivery.item_index];
+    let result;
     try {
-        const result = await social.publish({
+        result = await social.publish({
             accountId: delivery.account_id,
             noiDungBaiViet: item.content,
             image: item.image || undefined,
             requestId: delivery.id
         });
-        await repository.finish(delivery.id, 'published', result.facebookPostId);
     } catch (error) {
         const safe = social.publicError(error);
-        // Provider 5xx, transport failures and interrupted DB writes may have published already.
-        await repository.finish(
-            delivery.id,
-            [400, 401, 403].includes(safe.status) ? 'failed' : 'unknown',
-            null,
-            safe.error
-        );
+        // Provider 5xx and transport failures may have published already.
+        const status = [400, 401, 403].includes(safe.status) ? 'failed' : 'unknown';
+        await repository.finish(delivery.id, status, null, safe.error);
+        return { deliveryId: delivery.id, status, error: safe.error };
     }
+    // A database failure here leaves the delivery running, later unknown. Never call the provider again.
+    await repository.finish(delivery.id, 'published', result.facebookPostId);
+    return {
+        deliveryId: delivery.id,
+        status: 'published',
+        providerPostId: result.facebookPostId
+    };
+}
+async function runOnce(repository, social) {
+    const delivery = await repository.claim();
+    if (!delivery) return false;
+    await publishDelivery(repository, social, delivery);
     return true;
 }
 function createPublishing(social, env = process.env) {

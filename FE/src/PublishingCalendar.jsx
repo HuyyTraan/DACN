@@ -49,7 +49,9 @@ export default function PublishingCalendar() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [cancel, setCancel] = useState(null);
+    const [publishNow, setPublishNow] = useState(null);
     const [busy, setBusy] = useState(false);
+    const [notice, setNotice] = useState('');
     const [platformPosts, setPlatformPosts] = useState([]);
     const [platformCursors, setPlatformCursors] = useState({});
     const [platformLoading, setPlatformLoading] = useState(false);
@@ -288,6 +290,13 @@ export default function PublishingCalendar() {
             event.source === 'server'
                 ? {
                       ...fromPlan(event.plan, accounts),
+                      ...(event.deliveryStatus
+                          ? {
+                                serverDeliveryId: event.calendarId,
+                                serverDeliveryAccountId: event.accountIds[0],
+                                serverDeliveryStatus: event.deliveryStatus
+                            }
+                          : {}),
                       ...(event.status === 'Đã hủy' && event.plan.status !== 'cancelled'
                           ? { publishingReadOnly: true }
                           : {})
@@ -315,6 +324,38 @@ export default function PublishingCalendar() {
             setCancel(null);
             await reload();
         } catch (e) {
+            setError(e.message);
+        } finally {
+            setBusy(false);
+        }
+    }
+    async function publishApprovedNow() {
+        if (!publishNow) return;
+        const event = publishNow;
+        setBusy(true);
+        setError('');
+        setNotice('');
+        try {
+            const result = await socialRequest(
+                `/api/publishing/plans/${event.plan.id}/deliveries/${event.calendarId}/publish-now`,
+                {
+                    method: 'POST',
+                    body: JSON.stringify({ version: event.plan.version })
+                }
+            );
+            setPublishNow(null);
+            await reload();
+            setPlatformRefresh((value) => value + 1);
+            setNotice(
+                result.status === 'published'
+                    ? 'Đã đăng bài lên Facebook Page và lưu kết quả.'
+                    : result.status === 'unknown'
+                      ? 'Chưa rõ Facebook đã nhận bài hay chưa. Kiểm tra Page trước khi tạo lượt đăng khác.'
+                      : `Chưa đăng được: ${result.error || 'Kiểm tra kết nối Page.'}`
+            );
+        } catch (e) {
+            setPublishNow(null);
+            await reload();
             setError(e.message);
         } finally {
             setBusy(false);
@@ -400,6 +441,20 @@ export default function PublishingCalendar() {
                             onClick={() => approve(event)}
                         >
                             Duyệt & lên lịch
+                        </button>
+                    )}
+                {event.status === 'Đã duyệt chưa đăng' &&
+                    event.source === 'server' &&
+                    event.deliveryStatus === 'queued' &&
+                    event.plan.items[event.item_index]?.kind === 'post' &&
+                    event.item_index === 0 &&
+                    ['admin', 'manager'].includes(user.role) && (
+                        <button
+                            disabled={busy}
+                            className="text-link planner-publish-now"
+                            onClick={() => setPublishNow(event)}
+                        >
+                            Đăng ngay
                         </button>
                     )}
             </article>
@@ -543,6 +598,11 @@ export default function PublishingCalendar() {
                 {error && (
                     <p role="alert" className="social-alert">
                         {error}
+                    </p>
+                )}
+                {notice && (
+                    <p role="status" className="social-alert">
+                        {notice}
                     </p>
                 )}
                 {platformLoading && (
@@ -716,6 +776,25 @@ export default function PublishingCalendar() {
                         <p>{cancel.name}. Lượt đã đăng hoặc đang gửi không được thu hồi.</p>
                         <Button kind="danger" disabled={busy || saving} onClick={cancelPlan}>
                             Xác nhận hủy kế hoạch
+                        </Button>
+                    </div>
+                </Modal>
+            )}
+            {publishNow && (
+                <Modal title="Đăng bài đã duyệt ngay?" onClose={() => !busy && setPublishNow(null)}>
+                    <div className="dialog-body">
+                        <p>
+                            Bài sẽ được gửi ngay lên Facebook Page{' '}
+                            <strong>
+                                {accounts.find((a) => a.id === publishNow.accountIds?.[0])?.name ||
+                                    publishNow.accountName ||
+                                    publishNow.accountIds?.[0]}
+                            </strong>
+                            . Lượt đăng theo lịch của bài này sẽ không chạy lại.
+                        </p>
+                        <p style={{ whiteSpace: 'pre-wrap' }}>{publishNow.content}</p>
+                        <Button kind="primary" disabled={busy} onClick={publishApprovedNow}>
+                            {busy ? 'Đang đăng…' : 'Xác nhận đăng ngay'}
                         </Button>
                     </div>
                 </Modal>
