@@ -291,8 +291,21 @@ test('real PostgreSQL: migrations, auth/RBAC/CSRF, history and restart persisten
         timezone: 'Asia/Ho_Chi_Minh',
         repeat: 'none',
         repeatCount: 1,
-        scheduledAt: new Date(Date.now() + 3600000).toISOString()
+        scheduledAt: new Date(Date.now() + 7200000).toISOString()
     };
+    response = await request(
+        '/api/publishing/plans',
+        {
+            method: 'POST',
+            body: {
+                ...pendingBody,
+                scheduledAt: new Date(Date.now() + 59 * 60000).toISOString()
+            }
+        },
+        editor
+    );
+    assert.equal(response.status, 403);
+    assert.match((await response.json()).error, /ít nhất 1 giờ/);
     response = await request(
         '/api/publishing/plans',
         { method: 'POST', body: pendingBody },
@@ -300,6 +313,23 @@ test('real PostgreSQL: migrations, auth/RBAC/CSRF, history and restart persisten
     );
     assert.equal(response.status, 201);
     const waiting = await response.json();
+    response = await request(
+        `/api/publishing/plans/${waiting.id}`,
+        {
+            method: 'PUT',
+            body: {
+                ...pendingBody,
+                scheduledAt: new Date(Date.now() + 59 * 60000).toISOString(),
+                version: waiting.version
+            }
+        },
+        editor
+    );
+    assert.equal(response.status, 403);
+    assert.equal(
+        (await repo.list()).plans.find((p) => p.id === waiting.id).version,
+        waiting.version
+    );
     const approvalMail = await pool.query(
         "SELECT recipient_email,status FROM studio_automation_messages WHERE plan_id=$1 AND kind='approval_requested'",
         [waiting.id]
@@ -442,6 +472,66 @@ test('real PostgreSQL: migrations, auth/RBAC/CSRF, history and restart persisten
             })
         ]
     );
+    const manualBody = {
+        name: 'Manual publish test',
+        accountIds: ['facebook:123'],
+        status: 'scheduled',
+        items: [{ content: 'Manual publish, mock only', image: '', kind: 'post', delayMinutes: 0 }],
+        timezone: 'Asia/Ho_Chi_Minh',
+        scheduledAt: new Date(Date.now() + 3600000).toISOString(),
+        repeat: 'none',
+        repeatCount: 1
+    };
+    response = await request('/api/publishing/plans', { method: 'POST', body: manualBody });
+    assert.equal(response.status, 201);
+    const manualPlan = await response.json();
+    const manualDelivery = (await repo.list()).plans.find((p) => p.id === manualPlan.id)
+        .deliveries[0];
+    const manualUrl = `/api/publishing/plans/${manualPlan.id}/deliveries/${manualDelivery.id}/publish-now`;
+    let manualCalls = 0;
+    const originalPublish = social.publish;
+    social.publish = async (body) => {
+        manualCalls++;
+        assert.equal(body.requestId, manualDelivery.id);
+        return { facebookPostId: 'test-page_manual-post' };
+    };
+    assert.equal(
+        (
+            await request(
+                manualUrl,
+                { method: 'POST', body: { version: manualPlan.version } },
+                editor
+            )
+        ).status,
+        403
+    );
+    assert.equal(
+        (await request(manualUrl, { method: 'POST', body: { version: manualPlan.version + 1 } }))
+            .status,
+        409
+    );
+    response = await request(manualUrl, { method: 'POST', body: { version: manualPlan.version } });
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), {
+        deliveryId: manualDelivery.id,
+        status: 'published',
+        providerPostId: 'test-page_manual-post'
+    });
+    assert.equal(
+        (await request(manualUrl, { method: 'POST', body: { version: manualPlan.version } }))
+            .status,
+        409
+    );
+    assert.equal(manualCalls, 1);
+    assert.equal(
+        (
+            await pool.query('SELECT status FROM publishing_deliveries WHERE id=$1', [
+                manualDelivery.id
+            ])
+        ).rows[0].status,
+        'published'
+    );
+    social.publish = originalPublish;
     const featureRecords = {
         workflowRuns: { status: 'pending' },
         metrics: { accountId: 'facebook:123', postId: data.posts[0].id, reach: 100, clicks: 5 },
@@ -541,8 +631,9 @@ test('real PostgreSQL: migrations, auth/RBAC/CSRF, history and restart persisten
         ).status,
         403
     );
-    assert.equal(persisted.plans[0].deliveries[0].status, 'published');
-    assert.equal(persisted.plans[0].deliveries[0].provider_post_id, 'test-page_test-post');
+    const workerPlan = persisted.plans.find((p) => p.id === plan.id);
+    assert.equal(workerPlan.deliveries[0].status, 'published');
+    assert.equal(workerPlan.deliveries[0].provider_post_id, 'test-page_test-post');
     assert.ok(
         (await pool.query('SELECT count(*)::int AS n FROM studio_delivery_history')).rows[0].n >= 3
     );

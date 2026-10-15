@@ -699,7 +699,7 @@
                 ]
             },
             "post": {
-                "summary": "Tạo kế hoạch; scheduled tạo delivery trong cùng transaction. Không gửi ngay ở HTTP.",
+                "summary": "Tạo kế hoạch; Editor gửi pending phải chọn giờ đăng ít nhất 60 phút sau lúc gửi. scheduled tạo delivery trong cùng transaction. Không gửi ngay ở HTTP.",
                 "requestBody": {
                     "required": true,
                     "content": {
@@ -728,7 +728,7 @@
                         "description": "Cần đăng nhập"
                     },
                     "403": {
-                        "description": "Không đủ quyền hoặc CSRF sai"
+                        "description": "Không đủ quyền, CSRF sai hoặc Editor gửi pending có giờ đăng dưới 60 phút"
                     },
                     "409": {
                         "description": "Phiên bản hoặc ID kế hoạch xung đột; tải lại"
@@ -760,7 +760,7 @@
         },
         "/api/publishing/plans/{id}": {
             "put": {
-                "summary": "Thay nội dung/lịch trước khi bắt đầu đăng; bắt buộc version",
+                "summary": "Thay nội dung/lịch trước khi bắt đầu đăng; Editor sửa pending phải giữ giờ đăng cách hiện tại ít nhất 60 phút; bắt buộc version",
                 "parameters": [
                     {
                         "in": "path",
@@ -809,7 +809,7 @@
                         "description": "Cần đăng nhập"
                     },
                     "403": {
-                        "description": "Không đủ quyền hoặc CSRF sai"
+                        "description": "Không đủ quyền, CSRF sai hoặc Editor sửa pending có giờ đăng dưới 60 phút"
                     },
                     "404": {
                         "description": "Kế hoạch không tồn tại"
@@ -1952,6 +1952,59 @@
                         "description": "Không phải admin hoặc CSRF sai"
                     }
                 }
+            }
+        },
+        "/api/publishing/plans/{id}/deliveries/{deliveryId}/publish-now": {
+            "post": {
+                "summary": "Admin/Manager đăng ngay một bài chính đã duyệt và còn queued lên Facebook Page",
+                "description": "Cần xác nhận ở UI. Claim delivery bằng khóa hàng; worker không đăng lại lượt này. Kết quả failed/unknown được lưu và không tự retry.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": { "type": "string", "format": "uuid" }
+                    },
+                    {
+                        "in": "path",
+                        "name": "deliveryId",
+                        "required": true,
+                        "schema": { "type": "string", "format": "uuid" }
+                    },
+                    {
+                        "in": "header",
+                        "name": "X-CSRF-Token",
+                        "required": true,
+                        "schema": { "type": "string" }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "required": ["version"],
+                                "properties": {
+                                    "version": { "type": "integer", "minimum": 1 }
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Trả về deliveryId, status published/failed/unknown và providerPostId nếu thành công"
+                    },
+                    "400": { "description": "ID hoặc phiên bản không hợp lệ" },
+                    "401": { "description": "Cần đăng nhập" },
+                    "403": { "description": "Chỉ Admin/Manager hoặc CSRF sai" },
+                    "409": {
+                        "description": "Lượt không còn queued, phiên bản cũ, đã quá hạn hoặc đang xử lý"
+                    },
+                    "503": { "description": "DB/migration chưa sẵn sàng" }
+                },
+                "security": [{ "cookieAuth": [] }]
             }
         },
         "/api/publishing/plans/{id}/approve": {

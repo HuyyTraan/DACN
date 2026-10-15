@@ -65,6 +65,13 @@ export default function Composer({ post, onClose }) {
         accountIds: post?.accountIds || (initial ? [initial.id] : [])
     });
     const selected = accounts.filter((a) => form.accountIds.includes(a.id));
+    const approvedTarget = selected.find((a) => a.id === form.serverDeliveryAccountId);
+    const canPublishApprovedDelivery =
+        form.serverPlanId &&
+        form.serverDeliveryId &&
+        form.serverDeliveryStatus === 'queued' &&
+        form.status === 'Đã lên lịch' &&
+        approvedTarget;
     const [preview, setPreview] = useState(initial?.platform || form.platform);
     const [previewAccount, setPreviewAccount] = useState(initial?.id || '');
     const identity =
@@ -75,6 +82,7 @@ export default function Composer({ post, onClose }) {
     const [discard, setDiscard] = useState(false);
     const [confirm, setConfirm] = useState(false);
     const [publishing, setPublishing] = useState(false);
+    const [publishAttempted, setPublishAttempted] = useState(false);
     const [server, setServer] = useState({ ready: false, workerEnabled: false, loading: true });
     const [outcomes, setOutcomes] = useState(post?.publishResults || []);
     const [serverSaving, setServerSaving] = useState(false);
@@ -220,8 +228,22 @@ export default function Composer({ post, onClose }) {
     async function save(status) {
         const normalized = valid(status);
         if (!normalized) return;
+        if (
+            user.role === 'editor' &&
+            status === 'Chờ duyệt' &&
+            Date.parse(utcTime(form.date, form.time, form.timezone)) < Date.now() + 60 * 60 * 1000
+        ) {
+            setError(
+                'Không có thẩm quyền gửi duyệt bài đăng trong vòng 1 giờ tới. Hãy chọn giờ đăng cách hiện tại ít nhất 1 giờ để Admin/Manager có thời gian nhận thông báo.'
+            );
+            return;
+        }
         if (server.loading) {
             setError('Đang kiểm tra nơi lưu kế hoạch.');
+            return;
+        }
+        if (user.role === 'editor' && status === 'Chờ duyệt' && !server.ready) {
+            setError('Cần kết nối PostgreSQL để gửi duyệt và thông báo Admin/Manager.');
             return;
         }
         if (!server.ready && workspaceError) {
@@ -312,6 +334,10 @@ export default function Composer({ post, onClose }) {
         else setError('Chưa lưu được. Kiểm tra kết nối workspace hoặc chọn lưu cục bộ.');
     }
     async function publish() {
+        if (form.serverPlanId) {
+            await publishScheduledDelivery();
+            return;
+        }
         const normalized = valid('Bản nháp');
         if (!normalized) return;
         if (!selected.length || selected.some((a) => a.platform !== 'Facebook')) {
@@ -390,6 +416,59 @@ export default function Composer({ post, onClose }) {
             setError(
                 'Đã gửi yêu cầu nhưng chưa lưu được kết quả vào workspace. Không đăng lại; kiểm tra Page trước.'
             );
+    }
+    async function publishScheduledDelivery() {
+        if (!canPublishApprovedDelivery || dirty || publishAttempted) {
+            setConfirm(false);
+            setError(
+                'Lượt đăng đã thay đổi hoặc nội dung chưa lưu. Tải lại kế hoạch trước khi đăng.'
+            );
+            return;
+        }
+        setPublishAttempted(true);
+        setPublishing(true);
+        setError('');
+        try {
+            const result = await socialRequest(
+                `/api/publishing/plans/${form.serverPlanId}/deliveries/${form.serverDeliveryId}/publish-now`,
+                {
+                    method: 'POST',
+                    body: JSON.stringify({ version: form.serverVersion })
+                }
+            );
+            setConfirm(false);
+            window.dispatchEvent(new Event('publishing-plans-changed'));
+            setOutcomes([
+                {
+                    accountId: approvedTarget.id,
+                    accountName: approvedTarget.name,
+                    status: result.status === 'published' ? 'published' : 'check-required',
+                    facebookPostId: result.providerPostId,
+                    error:
+                        result.status === 'unknown'
+                            ? 'Chưa rõ Facebook đã nhận bài hay chưa'
+                            : result.error || 'Chưa đăng được'
+                }
+            ]);
+            if (result.status === 'published') {
+                await refreshSocial().catch(() => {});
+                onClose();
+            } else {
+                setError(
+                    result.status === 'unknown'
+                        ? 'Kết quả chưa rõ. Kiểm tra Facebook Page trước khi tạo lượt đăng mới.'
+                        : 'Lượt đăng thất bại. Xem kết quả và tải lại lịch trước khi xử lý tiếp.'
+                );
+            }
+        } catch (e) {
+            setConfirm(false);
+            window.dispatchEvent(new Event('publishing-plans-changed'));
+            setError(
+                `${e.message} Không bấm đăng lại trước khi kiểm tra Facebook Page và tải lại lịch.`
+            );
+        } finally {
+            setPublishing(false);
+        }
     }
     const items = [
         { content: form.content, image: form.image, kind: 'post' },
@@ -750,17 +829,27 @@ export default function Composer({ post, onClose }) {
                     )}
                     {confirm && (
                         <div className="publish-confirm" role="alert">
-                            <strong>Đăng bài chính ngay lên {selected.length} Page?</strong>
+                            <strong>
+                                {form.serverPlanId
+                                    ? `Đăng bài đã duyệt ngay lên ${approvedTarget?.name || 'Page đã chọn'}?`
+                                    : `Đăng bài chính ngay lên ${selected.length} Page?`}
+                            </strong>
                             <p>
-                                {selected.map((a) => a.name).join(', ')}. Lịch/lặp lại không áp dụng
-                                cho thao tác này.
+                                {form.serverPlanId
+                                    ? 'Lượt đăng của Page này sẽ được lưu kết quả và không chạy lại vào giờ hẹn.'
+                                    : `${selected.map((a) => a.name).join(', ')}. Lịch/lặp lại không áp dụng cho thao tác này.`}
                             </p>
                             <Button disabled={publishing} onClick={() => setConfirm(false)}>
                                 Hủy
                             </Button>
                             <Button
                                 kind="danger"
-                                disabled={publishing || !selected.length}
+                                disabled={
+                                    publishing ||
+                                    (form.serverPlanId
+                                        ? !canPublishApprovedDelivery
+                                        : !selected.length)
+                                }
                                 onClick={publish}
                             >
                                 {publishing ? 'Đang gửi…' : 'Xác nhận đăng thật'}
@@ -932,16 +1021,28 @@ export default function Composer({ post, onClose }) {
                             <button
                                 disabled={
                                     busy ||
-                                    user.role === 'editor' ||
-                                    form.status === 'Đã hủy' ||
-                                    hasSent ||
-                                    !selected.length ||
-                                    socialLoading ||
-                                    !!activeFollowups(form.comments).length
+                                    !['admin', 'manager'].includes(user.role) ||
+                                    (form.serverPlanId
+                                        ? !canPublishApprovedDelivery ||
+                                          publishAttempted ||
+                                          !!outcomes.length
+                                        : form.status === 'Đã hủy' ||
+                                          hasSent ||
+                                          !selected.length ||
+                                          socialLoading ||
+                                          !!activeFollowups(form.comments).length)
                                 }
-                                onClick={() => setConfirm(true)}
+                                onClick={() => {
+                                    if (form.serverPlanId && dirty) {
+                                        setError(
+                                            'Bạn có thay đổi chưa lưu. Bấm Lưu thay đổi, mở lại bài rồi mới đăng ngay.'
+                                        );
+                                        return;
+                                    }
+                                    setConfirm(true);
+                                }}
                             >
-                                Đăng ngay lên {selected.length} Page
+                                Đăng ngay lên {form.serverPlanId ? 1 : selected.length} Page
                             </button>
                         </div>
                     </details>

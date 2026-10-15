@@ -4838,6 +4838,22 @@ th button {
     margin-top: 8px;
     font-size: 12px;
 }
+.planner-event > .planner-publish-now {
+    width: 100%;
+    padding: 7px 9px;
+    border-radius: 7px;
+    background: #eee9fa;
+    color: #5d4796;
+    font-weight: 700;
+    text-align: center;
+}
+.planner-event > .planner-publish-now:hover {
+    background: #e2d7f8;
+}
+.planner-event > .planner-publish-now:disabled {
+    opacity: 0.55;
+    cursor: wait;
+}
 .planner-event.state-published {
     border-left-color: #61ad96;
 }
