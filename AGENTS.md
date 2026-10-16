@@ -21,8 +21,16 @@ Migration 008 thêm delivery.plan_version và unique theo phiên bản. Sửa/g�
 - n8n self-hosted qua Docker Compose cho email duyệt bài/lịch chạy RPA; Playwright cho Dashboard screenshot/CSV, Robot Framework/SeleniumLibrary còn là mẫu cũ.
 - Swagger UI/OpenAPI 3, collection Postman và Node test runner.
 - Dùng Node.js 22.12+ theo Vite; máy kiểm tra dùng 22.20.0 và npm 11.13.0. Đồng bộ manifest và lockfile bằng npm.
-- UI gồm dashboard, lịch, chat và đầy đủ 13 mục trong hình yêu cầu, thêm Workflow/RPA: tổng 17 màn hình (thêm Liên kết tài khoản).
+- UI gồm Dashboard, lịch, chat và các mục quản trị nội dung, thêm Workflow/RPA và Liên kết tài khoản. Dùng sidebar/hash trong `FE/src/App.jsx` làm nguồn chuẩn cho tên và số màn hình hiện tại.
 - Facebook Page có tích hợp thật; analytics, chat, SERP và các adapter mạng xã hội khác chưa được tích hợp. Không giả vờ OAuth/đồng bộ/tự đăng đã hoạt động. Đăng nhập yêu cầu PostgreSQL. localStorage cũ chỉ được nhập vào DB khi người dùng chọn nhập; không tự chuyển nguồn hay xóa dữ liệu.
+
+## Hướng dẫn tác nhân và nguồn chuẩn
+
+- Áp dụng file này cho toàn repository. Ưu tiên yêu cầu hiện tại của người dùng, sau đó kiểm chứng hướng dẫn với source, cấu hình, migration và test thực tế; ghi nhận mâu thuẫn thay vì sao chép giả định cũ.
+- README.md là hướng dẫn cài/chạy, API và giới hạn sản phẩm; DATABASE-ARCHITECTURE.md là bản đồ schema/quan hệ; PUBLISHING-ARCHITECTURE.md là bản thảo kiến trúc publishing. Không tạo bản sao nội dung dài trong AGENTS.md; cập nhật tài liệu sở hữu thông tin khi thay đổi.
+- Trước khi sửa, kiểm tra `git status --short` và bảo toàn thay đổi sẵn có của người dùng. Chỉ sửa file liên quan; không reset database/volume, ghi đè `.env`, token vault hoặc tài liệu người dùng.
+- ECC chỉ dùng skill có trong danh sách phiên hiện tại và đọc `SKILL.md` từ cache trước khi áp dụng. Skill chọn theo phạm vi: `ecc:repo-scan`/`ecc:codebase-onboarding` để khảo sát; `ecc:frontend-patterns`/`ecc:frontend-design-direction` cho React/UI; `ecc:backend-patterns`/`ecc:api-design`/`ecc:security-review` cho API, DB và tích hợp; `ecc:database-migrations` cho migration; `ecc:docs-governance` hoặc `ecc:living-docs-governance` cho tài liệu. Skill `repo-scan` tại cache hiện là bootstrap yêu cầu clone/cài skill bên ngoài; không cài hoặc chạy script mạng nếu chưa được yêu cầu. `skill-stocktake` kiểm toán kỹ năng Claude trong `.claude/`, không thay thế việc kiểm kê các skill ECC được phiên cung cấp.
+- Định dạng theo `.prettierrc.json`: 4 spaces, single quote, không trailing comma, print width 100. Chạy `npm run format` khi sửa source/tài liệu thuộc script; không format các file đang có chỉnh sửa người dùng ngoài phạm vi nếu không cần.
 
 ## Cấu trúc
 
@@ -42,6 +50,17 @@ Migration 008 thêm delivery.plan_version và unique theo phiên bản. Sửa/g�
 - FE/public/domain.js được backend dùng lại cho seed/schema; cập nhật cùng UI/API/test, không nhân đôi helper.
 - DOCX, sơ đồ kiến trúc và ảnh tham khảo là tài liệu người dùng; giữ nguyên nếu không được yêu cầu sửa.
 
+### Bản đồ tra cứu nhanh
+
+| Việc cần làm                    | Điểm bắt đầu                                                                                       | Đối chiếu                                                                  |
+| ------------------------------- | -------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| React shell, state, form        | `FE/src/App.jsx`, `FE/src/Composer.jsx`, `FE/src/ApprovalBoard.jsx`                                | `FE/src/components.jsx`, `FE/src/styles.css`, `FE/test/`                   |
+| Lịch đăng                       | `FE/src/PublishingCalendar.jsx`, `FE/src/publishing-model.mjs`, `BE/server/publishing.js`          | `BE/server/publishing-worker.js`, migrations 001, 007, 008, 011; README    |
+| Đăng nhập/phân quyền và dữ liệu | `BE/server/auth.js`, `BE/server/resources.js`, `BE/server/data-store.js`                           | `BE/db/migrations/`, `BE/prisma/schema.prisma`, `DATABASE-ARCHITECTURE.md` |
+| Facebook/Instagram              | `BE/server/social.js`, `BE/server/publish-receipts.js`, `FE/src/Social.jsx`, `FE/src/Composer.jsx` | `BE/test/social.test.cjs`, OpenAPI và README                               |
+| Automation/RPA                  | `BE/server/automation.js`, `BE/server/rpa-worker.js`, `BE/workflows/`                              | README và `BE/rpa/`                                                        |
+| Hợp đồng API                    | `BE/api/openapi.json`                                                                              | `BE/api/omni-studio.postman_collection.json`, `BE/test/`                   |
+
 ## Lệnh thực tế
 
 Chạy tại gốc bằng PowerShell:
@@ -59,12 +78,17 @@ Chạy tại gốc bằng PowerShell:
 | Test tự động                       | npm test                                                                               |
 | Kiểm tra format                    | npm run format:check                                                                   |
 | Chuẩn hóa format                   | npm run format                                                                         |
+| Kiểm tra schema Prisma             | npm run db:validate                                                                    |
+| Sinh Prisma Client                 | npm run db:generate                                                                    |
+| Test PostgreSQL trong schema riêng | npm run test:database                                                                  |
 | PostgreSQL + n8n                   | docker compose --env-file BE/.env -f BE/compose.yaml up -d (cần Docker Engine và .env) |
 | Worker RPA (chỉ sau cấu hình)      | npm run worker:rpa (cần RPA_EMAIL/RPA_PASSWORD và Chrome)                              |
 
 npm run check không kiểm tra JSX; dùng build. Chưa có script lint/typecheck hoặc CI. Test HTTP dùng port ngẫu nhiên và có thể cần quyền loopback ngoài sandbox. `npm run test:database` đã chạy với PostgreSQL thật trong schema tạm. Playwright on-demand và worker lịch đã chạy thử trên UI cục bộ; n8n workflow/SMTP chưa được import, kích hoạt hoặc gửi thư thật.
 
 Sau thay đổi frontend chạy build và kiểm tra trình duyệt desktop/mobile: sidebar, dialog, bảng/lịch cuộn, overflow, loading/empty/error. Sau sửa logic/persistence/API chạy test liên quan. Kiểm tra diff và báo rõ kiểm tra đạt, chưa chạy hoặc bị chặn.
+
+Phân biệt kiểm tra theo script thực tế: `npm run check` chỉ dùng `node --check` cho các file backend/domain được liệt kê, không kiểm tra JSX; `npm run build` kiểm tra compile/bundle frontend; `npm test` chạy Node test runner cho test API, domain, social, publishing và database integration theo môi trường; `npm run test:database` cần PostgreSQL và dùng schema tạm. `npm run format:check` chỉ kiểm tra danh sách path được khai báo trong `package.json`. Không chạy lệnh migration, worker publishing, đăng bài thật, gửi email hoặc thay đổi tài khoản chỉ để kiểm tra.
 
 ## Quy ước frontend
 
@@ -82,11 +106,11 @@ Sau thay đổi frontend chạy build và kiểm tra trình duyệt desktop/mobi
 - Bind mặc định 127.0.0.1; PORT/HOST đọc từ BE/.env. Có authentication cookie/session PostgreSQL, CSRF và vai trò admin/manager/editor/viewer; vẫn bind loopback, chưa đa tenant.
 - DATABASE_URL trống: GET /api/workspace trả demo, UI lưu local. Có cấu hình: khởi tạo bảng/workspace rỗng nếu cần, lưu snapshot + version. Không hardcode credential thật.
 - Thêm field/collection phải cập nhật seed/schema, form, OpenAPI và test đồng bộ. Không sửa integrity lockfile thủ công.
-- POST /api/publish/facebook: noiDungBaiViet string; rỗng/sai kiểu 400, thiếu Page/token 503, provider error 502, token lỗi 401, thiếu quyền 403, thành công 200 với facebookPostId. Axios timeout 15 giây. GRAPH_API_VERSION mặc định v21.0 giữ từ mã gốc; chỉ đổi sau khi kiểm tra tương thích.
+- POST /api/publish/facebook: noiDungBaiViet string; hỗ trợ Facebook và Instagram Professional đã liên kết. Thành công trả providerPostId; Facebook giữ facebookPostId tương thích. Instagram đăng ngay ảnh JPG ≤1 MB qua container/media_publish; local dùng Cloudflare Quick Tunnel tạm nếu cloudflared có sẵn, triển khai dùng kho S3-compatible công khai cấu hình bằng INSTAGRAM_MEDIA_*. Tunnel chỉ mở endpoint ảnh ngẫu nhiên, không dùng sản xuất. Rỗng/sai kiểu 400, thiếu media hosting 503, provider error 502, token lỗi 401, thiếu quyền 403. Không tự retry khi kết quả Instagram chưa rõ. Axios timeout 15 giây. GRAPH_API_VERSION mặc định v21.0 giữ từ mã gốc; chỉ đổi sau khi kiểm tra tương thích.
 - Không đưa token/connection string/lỗi provider nhạy cảm vào response/log; không commit .env.
 - Test Facebook mock Axios và credential giả; không đăng thật. UI đăng thật qua nút riêng + xác nhận; văn bản và ảnh tùy chọn lên Page đã chọn; không tự đăng khi test.
 - Workflow n8n mẫu không active, không có node publish. Không bật workflow/gọi dịch vụ ngoài để kiểm tra UI. Robot chỉ mở/đọc UI.
-- Migration 009–010 thêm email outbox, RPA run và loại địa chỉ `.test`; không sửa migration đã áp dụng. Workflow email cần PostgreSQL credential trỏ database ứng dụng và SMTP credential do người dùng cấu hình; không bật hoặc gửi email thật để test khi chưa có credential. Worker RPA riêng đọc UI/CSV và không đăng Facebook. Admin email trên DB cục bộ hiện tại được đổi thành `khaipham111005@gmail.com`, script seed vẫn dùng email `.test` cho môi trường dev mới.
+- Migration 009–010 thêm email outbox, RPA run và loại địa chỉ `.test`; không sửa migration đã áp dụng. Workflow email cần PostgreSQL credential trỏ database ứng dụng và SMTP credential do người dùng cấu hình; không bật hoặc gửi email thật để test khi chưa có credential. Worker RPA riêng đọc UI/CSV và không đăng Facebook. Email/tài khoản trong database cục bộ có thể thay đổi; kiểm tra database và README hiện tại trước khi hướng dẫn đăng nhập. Script seed cho database dev mới khai báo tài khoản mẫu trong `BE/server/dev-accounts.js`.
 - Không xóa PostgreSQL volume để sửa khởi động. BE/db/init.sql chỉ chạy khi volume khởi tạo lần đầu.
 
 ## Skill và định dạng
@@ -108,7 +132,7 @@ Không tự nạp seed() vào runtime UI hoặc PostgreSQL mới. Dùng emptyWor
 - BE/.data/ gitignored. Không đổi khóa mã hóa hoặc xóa vault để sửa lỗi; giữ token ngoài FE/localStorage/workspace.
 - Đăng ảnh: data URL JPG/PNG/WebP/GIF ≤1 MB, xác minh magic bytes trước khi gửi multipart. Không nhận URL ảnh tùy ý để tránh SSRF.
 - Worker dùng delivery DB; API đăng ngay dùng studio_publish_requests bền vững (UUID/fingerprint); adapter nội bộ vẫn có cache in-memory 24h. Không tự retry publish khi timeout/kết quả không rõ; đọc Page để tránh trùng.
-- Chỉ Facebook có adapter đang hoạt động. Không hiển thị nền tảng chưa tích hợp như đã kết nối; reply/comment/video/reels/insights chưa có adapter thật. Worker có thể đăng các bài độc lập nối tiếp theo lịch PostgreSQL khi người dùng chủ động bật và chạy.
+- Facebook adapter hỗ trợ đọc/quản lý bài Page và đăng; Instagram hỗ trợ phát hiện tài khoản Professional liên kết và đăng ảnh JPG ngay qua Quick Tunnel local hoặc kho media public. Instagram đọc bài, lịch worker, video/reels/comment/insights chưa có adapter thật. Không hiển thị nền tảng khác như đã kết nối; reply/comment chưa có adapter. Worker PostgreSQL hiện chỉ nhận Facebook; chỉ chạy khi người dùng chủ động bật.
 - Social API đọc Page không phụ thuộc workspace DB. Lỗi tải workspace phải hiển thị và chặn lưu cho tới khi người dùng chọn local hoặc DB hoạt động, không ghi đè local cũ bằng dữ liệu rỗng.
 - Test OAuth/upload/sửa/xóa dùng mock, không tác động Page thật trừ yêu cầu trực tiếp của người dùng cho bài/thao tác cụ thể.
 
