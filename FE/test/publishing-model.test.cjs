@@ -4,7 +4,13 @@ test('calendar merges Page posts with local plans by provider ID and actual publ
     const { mergePublishedEvents } = await import('../src/publishing-model.mjs');
     const events = [
         { calendarId: 'local', facebookPostId: '123_1', status: 'Đã đăng' },
-        { calendarId: 'delivery', providerPostId: '123_2', status: 'Đã đăng' },
+        {
+            calendarId: 'delivery',
+            providerPostId: '123_2',
+            status: 'Đã đăng',
+            source: 'server',
+            plan: { id: 'plan-2', status: 'scheduled' }
+        },
         { calendarId: 'pending', status: 'Chưa duyệt' }
     ];
     const posts = [
@@ -33,6 +39,7 @@ test('calendar merges Page posts with local plans by provider ID and actual publ
     assert.equal(first.image, posts[0].image);
     assert.deepEqual(first.accountIds, ['facebook:123']);
     assert.equal(result.find((e) => e.providerPostId === '123_2').time, '15:13');
+    assert.equal(result.find((e) => e.providerPostId === '123_2').plan.id, 'plan-2');
     assert.equal(result.filter((e) => e.status === 'Chưa duyệt').length, 1);
     assert.equal(
         mergePublishedEvents(

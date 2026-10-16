@@ -296,6 +296,7 @@ export default function Administration({ kind }) {
     return (
         <>
             <Panel
+                className="administration-panel"
                 title={
                     kind === 'history'
                         ? 'Lịch sử hoạt động'

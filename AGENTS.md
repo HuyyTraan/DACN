@@ -6,6 +6,8 @@ Lịch gộp bài Page thật (published_posts, since/until theo kỳ xem, phân
 
 Publishing approval: migration 007 thêm `pending`. Gửi duyệt lưu kế hoạch server không tạo deliveries; Admin/Manager duyệt thành `scheduled`. `pending` quá giờ tự `cancelled` (sweep 30s, đọc/lưu, khởi động), lưu lý do và lịch sử; độc lập worker. Bài đã hủy chỉ gửi lại thành pending với giờ tương lai. FE hiển thị bộ lọc/nhãn và danh sách hủy ở mọi ngày đã tải. Bài đã duyệt có sẵn giữ nguyên.
 
+Migration 011 thêm `rejected` cho kế hoạch bị Admin/Manager từ chối có lý do; không tạo delivery. Editor chỉ gửi lại `pending` sau khi sửa và chọn giờ đủ xa. Bảng duyệt trong FE/src/ApprovalBoard.jsx đọc từ PostgreSQL và lịch sử xử lý, không giả trạng thái duyệt từ workspace.
+
 Migration 008 thêm delivery.plan_version và unique theo phiên bản. Sửa/gửi lại đánh dấu lượt cũ cancelled, giữ nguyên delivery/history; worker chỉ claim phiên bản lịch hiện tại, không dùng lượt cũ để chặn bài của phiên bản mới.
 
 `npm run db:dev-accounts` tạo bốn tài khoản test công khai (admin/manager/editor/viewer) được ghi trong README, chỉ cho PostgreSQL localhost và không ở NODE_ENV=production. Không chạy tự động hoặc ghi đè user đã tồn tại; vô hiệu hóa/đổi mật khẩu test trước khi chia sẻ triển khai.
@@ -28,6 +30,7 @@ Migration 008 thêm delivery.plan_version và unique theo phiên bản. Sửa/g�
 - FE/src/components.jsx: bảng, metric, modal, badge, avatar, biểu đồ SVG và CSV; tái sử dụng trước khi thêm thư viện/component.
 - FE/src/pages.jsx: quản trị, phân tích, lịch, inbox, SEO và workflow.
 - FE/src/Composer.jsx: nhiều kênh, preview, ảnh/bình luận, nháp/duyệt/lịch và Facebook có xác nhận.
+- FE/src/ApprovalBoard.jsx: bảng duyệt bài, lọc/xuất CSV, duyệt/từ chối và lý do.
 - FE/src/styles.css: token, responsive và reduced motion. FE/public/brand.svg: logo.
 - FE/public/domain.js: seed/helper/schema chung cho browser và Node. Script load trước React, export CommonJS cho server/test.
 - BE/server.js: Express, static FE/dist, API Facebook, Swagger và download mẫu. Đọc BE/.env theo __dirname.

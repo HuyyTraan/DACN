@@ -521,7 +521,7 @@
         },
         {
             "name": "Publishing plans",
-            "description": "Editor chỉ được gửi hoặc sửa pending khi giờ đăng còn cách hiện tại ít nhất 60 phút; gần hơn trả 403. Admin/Manager duyệt và lên lịch. Bản nháp không bị giới hạn 60 phút.",
+            "description": "Editor chỉ được gửi hoặc sửa pending khi giờ đăng còn cách hiện tại ít nhất 60 phút; gần hơn trả 403. Admin/Manager duyệt hoặc từ chối có lý do. Bản nháp không bị giới hạn 60 phút.",
             "item": [
                 {
                     "name": "Publishing readiness",
@@ -561,6 +561,25 @@
             "description": "Chỉ chạy từng request có chủ đích trên DB local. Không chạy toàn collection; approve có thể tạo hàng đợi đăng nếu worker được bật.",
             "item": [
                 {
+                    "name": "List approval board",
+                    "request": {
+                        "method": "GET",
+                        "url": "{{baseUrl}}/api/publishing/approvals?status=all&limit=50&offset=0"
+                    }
+                },
+                {
+                    "name": "Delete Omni Studio plan (Admin only; leaves Facebook post intact)",
+                    "request": {
+                        "method": "DELETE",
+                        "header": [
+                            { "key": "Content-Type", "value": "application/json" },
+                            { "key": "X-CSRF-Token", "value": "{{csrfToken}}" }
+                        ],
+                        "body": { "mode": "raw", "raw": "{ \"version\": 1 }" },
+                        "url": "{{baseUrl}}/api/publishing/plans/{{planId}}"
+                    }
+                },
+                {
                     "name": "Approve pending plan (Admin/Manager)",
                     "request": {
                         "method": "POST",
@@ -583,6 +602,21 @@
                             "host": ["{{baseUrl}}"],
                             "path": ["api", "publishing", "plans", "{{planId}}", "approve"]
                         }
+                    }
+                },
+                {
+                    "name": "Reject pending plan (Admin/Manager)",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            { "key": "Content-Type", "value": "application/json" },
+                            { "key": "X-CSRF-Token", "value": "{{csrfToken}}" }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{ \"version\": 1, \"reason\": \"Cần sửa nội dung\" }"
+                        },
+                        "url": "{{baseUrl}}/api/publishing/plans/{{planId}}/reject"
                     }
                 },
                 {

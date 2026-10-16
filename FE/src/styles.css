@@ -5230,6 +5230,12 @@ th button {
     overflow-wrap: anywhere;
     line-height: 1.7;
 }
+.remote-post-origin {
+    display: block;
+    margin: -8px 0 12px;
+    color: var(--muted, #6b7280);
+    font-size: 12px;
+}
 .remote-post-image {
     width: 100%;
     max-height: 360px;
@@ -5860,6 +5866,224 @@ main.publishing-workspace {
     font-size: max(13px, 0.8em);
     padding: 0.6em 0.9em;
 }
+.approval-board {
+    min-width: 0;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    padding: clamp(18px, 1.8vw, 36px);
+    border: 1px solid #e6e4ed;
+    border-radius: 24px;
+    background: #fff;
+}
+.approval-heading,
+.approval-toolbar,
+.approval-heading-actions,
+.approval-filters,
+.approval-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.approval-heading,
+.approval-toolbar {
+    justify-content: space-between;
+    flex-wrap: wrap;
+    margin-bottom: 18px;
+}
+.approval-heading h2 {
+    margin: 0 0 5px;
+}
+.approval-heading p {
+    margin: 0;
+    color: #717386;
+}
+.approval-filters {
+    flex-wrap: wrap;
+}
+.approval-filters button {
+    border: 1px solid #e6e4ed;
+    border-radius: 9px;
+    background: #fff;
+    padding: 8px 12px;
+    color: #42445b;
+    cursor: pointer;
+}
+.approval-filters button.active {
+    background: #f1edfa;
+    color: #6545aa;
+    border-color: #d9cdf4;
+}
+.approval-filters span {
+    margin-left: 4px;
+    font-weight: 700;
+}
+.approval-search {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    border: 1px solid #e6e4ed;
+    border-radius: 9px;
+    padding: 0 10px;
+    min-height: 38px;
+}
+.approval-search input {
+    border: 0;
+    outline: 0;
+    min-width: min(280px, 55vw);
+}
+.approval-grid {
+    min-width: 0;
+    width: 100%;
+    overflow: auto;
+    border: 1px solid #e6e4ed;
+    border-radius: 12px;
+    margin-bottom: 14px;
+}
+.approval-grid table {
+    width: 1664px;
+    min-width: 100%;
+    table-layout: fixed;
+    border-collapse: separate;
+    border-spacing: 0;
+    font-size: 13px;
+}
+.approval-grid th,
+.approval-grid td {
+    padding: 12px;
+    border-right: 1px solid #eceaf1;
+    border-bottom: 1px solid #eceaf1;
+    text-align: left;
+    vertical-align: top;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.approval-grid th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: #f7f6fa;
+    color: #54556c;
+    white-space: normal;
+}
+.approval-grid td {
+    white-space: nowrap;
+    vertical-align: middle;
+}
+.approval-grid tbody tr:nth-child(even) {
+    background: #fcfbfe;
+}
+.approval-grid tbody tr:hover {
+    background: #f5f1fc;
+}
+.approval-link,
+.approval-actions button {
+    border: 0;
+    background: none;
+    color: #6447a6;
+    cursor: pointer;
+    font-weight: 650;
+}
+.approval-link {
+    display: block;
+    width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-align: left;
+}
+.approval-actions {
+    flex-wrap: wrap;
+    gap: 5px 10px;
+}
+.approval-grid td:last-child {
+    white-space: normal;
+}
+.approval-actions small {
+    width: 100%;
+    color: #737589;
+}
+.approval-state {
+    display: inline-block;
+    padding: 4px 8px;
+    border-radius: 6px;
+    white-space: nowrap;
+    font-weight: 700;
+}
+.approval-state.state-pending {
+    background: #fff1d7;
+    color: #9c6300;
+}
+.approval-state.state-scheduled {
+    background: #e6f7ee;
+    color: #14734b;
+}
+.approval-state.state-rejected,
+.planner-state-tag.status-rejected {
+    background: #ffe9e7;
+    color: #b53b35;
+}
+.approval-grid tbody tr.is-published,
+.approval-grid tbody tr.is-published:hover {
+    background: #f1f1f4;
+    color: #777987;
+}
+.approval-grid .is-published .approval-state,
+.approval-locked {
+    background: #e3e4e9;
+    color: #666979;
+}
+.approval-grid .is-published .approval-link,
+.approval-grid .is-published .approval-actions button {
+    color: #666979;
+}
+.approval-actions .approval-delete,
+.approval-grid .is-published .approval-actions .approval-delete {
+    color: #b53b35;
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+}
+.approval-actions button:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+}
+.approval-locked {
+    padding: 4px 7px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 700;
+}
+.approval-empty {
+    padding: 24px;
+    text-align: center;
+    color: #727487;
+}
+.approval-notice {
+    color: #16734f;
+}
+.approval-reject-field {
+    display: grid;
+    gap: 8px;
+    font-weight: 650;
+}
+.approval-reject-field textarea {
+    min-height: 100px;
+    resize: vertical;
+    padding: 10px;
+    border: 1px solid #d9d5e2;
+    border-radius: 8px;
+}
+.approval-detail-content {
+    white-space: pre-wrap;
+    background: #f7f6fa;
+    padding: 12px;
+    border-radius: 8px;
+}
+.approval-detail-title,
+.approval-detail-content {
+    overflow-wrap: anywhere;
+}
 .publishing-workspace .publishing-studio {
     font-size: var(--publishing-font);
     grid-template-columns: clamp(210px, 14vw, 340px) minmax(0, 1fr);
@@ -5998,21 +6222,6 @@ dialog.publishing-composer-modal {
 .publishing-composer-modal .schedule-fields > select {
     font-size: max(13px, 0.8em);
 }
-@media (min-width: 1200px) {
-    body:has(.publishing-workspace) {
-        --sidebar: clamp(244px, 14vw, 420px);
-    }
-    body:has(.publishing-workspace) .nav-link {
-        font-size: calc(var(--publishing-font) * 0.85);
-        min-height: clamp(42px, 2.6vw, 72px);
-    }
-    body:has(.publishing-workspace) .nav-group {
-        font-size: calc(var(--publishing-font) * 0.6);
-    }
-    body:has(.publishing-workspace) .workspace-switch {
-        font-size: calc(var(--publishing-font) * 0.8);
-    }
-}
 @media (max-width: 1000px) {
     .publishing-workspace .publishing-studio {
         grid-template-columns: 190px minmax(0, 1fr);
@@ -6116,6 +6325,16 @@ dialog.publishing-composer-modal {
     gap: 10px;
     flex-wrap: wrap;
     margin-bottom: 16px;
+}
+.administration-panel > .toolbar {
+    align-items: center;
+    padding: 10px 22px 18px;
+    margin-bottom: 0;
+}
+@media (max-width: 720px) {
+    .administration-panel > .toolbar {
+        padding: 10px 15px 16px;
+    }
 }
 .automation-actions {
     display: flex;

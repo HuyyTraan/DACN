@@ -169,6 +169,73 @@ class PublishingRepository {
             nextOffset: rows.rows.length > limit ? offset + limit : null
         };
     }
+    async listApprovals(limit = 50, offset = 0, status = 'all', actorId = null) {
+        const selected = status === 'all' ? ['pending', 'scheduled', 'rejected'] : [status];
+        const [rows, totals] = await Promise.all([
+            this.pool.query(
+                `SELECT p.id,p.version,p.status,p.payload,p.created_at,p.updated_at,
+                        creator.name AS created_by_name,reviewer.name AS reviewed_by_name,
+                        review.created_at AS reviewed_at,mail.status AS email_status,
+                        delivery.total AS delivery_count,delivery.published AS published_count,
+                        delivery.locked AS locked_count
+                 FROM publishing_plans p
+                 LEFT JOIN studio_users creator ON creator.id=p.created_by
+                 LEFT JOIN LATERAL (
+                    SELECT h.actor_id,h.created_at FROM studio_plan_history h
+                    WHERE h.plan_id=p.id AND h.status IN ('scheduled','rejected')
+                    ORDER BY h.id DESC LIMIT 1
+                 ) review ON p.status IN ('scheduled','rejected')
+                 LEFT JOIN studio_users reviewer ON reviewer.id=review.actor_id
+                 LEFT JOIN LATERAL (
+                    SELECT m.status FROM studio_automation_messages m
+                    WHERE m.plan_id=p.id AND m.plan_version=p.version
+                      AND m.recipient_user_id=$4 AND m.kind='approval_requested'
+                    LIMIT 1
+                 ) mail ON true
+                 LEFT JOIN LATERAL (
+                    SELECT count(*)::int AS total,
+                           count(*) FILTER (WHERE d.status='published')::int AS published,
+                           count(*) FILTER (WHERE d.status IN ('running','published','unknown'))::int AS locked,
+                           array_agg(d.provider_post_id) FILTER (WHERE d.status='published' AND d.provider_post_id IS NOT NULL) AS provider_post_ids
+                    FROM publishing_deliveries d
+                    WHERE d.plan_id=p.id AND d.plan_version=p.version
+                 ) delivery ON true
+                 WHERE p.status=ANY($3::text[])
+                 ORDER BY CASE WHEN p.status='pending' THEN 0 ELSE 1 END,p.updated_at DESC,p.id DESC
+                 LIMIT $1 OFFSET $2`,
+                [limit + 1, offset, selected, actorId]
+            ),
+            this.pool.query(
+                "SELECT status,count(*)::int AS total FROM publishing_plans WHERE status IN ('pending','scheduled','rejected') GROUP BY status"
+            )
+        ]);
+        return {
+            items: rows.rows.slice(0, limit).map((row) => ({
+                id: row.id,
+                version: row.version,
+                status: row.status,
+                ...row.payload,
+                status: row.status,
+                createdAt: row.created_at,
+                updatedAt: row.updated_at,
+                createdByName: row.created_by_name,
+                reviewedByName: row.reviewed_by_name,
+                reviewedAt: row.reviewed_at,
+                emailStatus: row.email_status,
+                deliveryCount: row.delivery_count,
+                publishedCount: row.published_count,
+                providerPostIds: row.provider_post_ids || [],
+                isLocked: row.locked_count > 0
+            })),
+            counts: Object.fromEntries(
+                ['pending', 'scheduled', 'rejected'].map((key) => [
+                    key,
+                    totals.rows.find((row) => row.status === key)?.total || 0
+                ])
+            ),
+            nextOffset: rows.rows.length > limit ? offset + limit : null
+        };
+    }
     async expirePending(now = Date.now()) {
         return this.transaction(async (client) => {
             const cancelledAt = new Date(now).toISOString();
@@ -228,10 +295,13 @@ class PublishingRepository {
                 if (!prior.rows.length) throw new PublishingError(404, 'Không tìm thấy kế hoạch.');
                 if (prior.rows[0].version !== version)
                     throw new PublishingError(409, 'Kế hoạch đã thay đổi. Tải lại trước khi sửa.');
-                if (prior.rows[0].status === 'cancelled' && plan.status !== 'pending')
+                if (
+                    ['cancelled', 'rejected'].includes(prior.rows[0].status) &&
+                    plan.status !== 'pending'
+                )
                     throw new PublishingError(
                         409,
-                        'Bài đã hủy cần sửa thời gian và gửi lại để duyệt.'
+                        'Bài đã hủy hoặc bị từ chối cần sửa và gửi lại để duyệt.'
                     );
                 const sent = await client.query(
                     "SELECT id FROM publishing_deliveries WHERE plan_id = $1 AND status IN ('running','published','unknown') LIMIT 1",
@@ -308,6 +378,62 @@ class PublishingRepository {
                 [id]
             );
             return result.rows[0];
+        });
+    }
+    async reject(id, version, reason, actor) {
+        return this.transaction(async (client) => {
+            const result = await client.query(
+                `UPDATE publishing_plans
+                 SET status='rejected',version=version+1,updated_at=now(),updated_by=$4,
+                     payload=payload || jsonb_build_object('rejectionReason',$3::text,'rejectedAt',now()::text)
+                 WHERE id=$1 AND version=$2 AND status='pending'
+                 RETURNING id,version`,
+                [id, version, reason, actor?.id || null]
+            );
+            if (!result.rows.length)
+                throw new PublishingError(
+                    409,
+                    'Bài không còn ở trạng thái chờ duyệt hoặc đã thay đổi. Hãy tải lại.'
+                );
+            await audit(client, actor, 'approval.rejected', 'publishing_plans', id, null, {
+                reason
+            });
+            return result.rows[0];
+        });
+    }
+    async deletePlan(id, version, actor) {
+        return this.transaction(async (client) => {
+            const result = await client.query(
+                'SELECT version,status,payload FROM publishing_plans WHERE id=$1 FOR UPDATE',
+                [id]
+            );
+            if (!result.rows.length) throw new PublishingError(404, 'Không tìm thấy kế hoạch.');
+            const plan = result.rows[0];
+            if (plan.version !== version)
+                throw new PublishingError(409, 'Kế hoạch đã thay đổi. Tải lại trước khi xóa.');
+            const active = await client.query(
+                "SELECT 1 FROM publishing_deliveries WHERE plan_id=$1 AND status IN ('running','unknown') LIMIT 1",
+                [id]
+            );
+            if (active.rows.length)
+                throw new PublishingError(
+                    409,
+                    'Có lượt đăng đang xử lý hoặc chưa rõ kết quả. Kiểm tra Page trước khi xóa.'
+                );
+            await audit(client, actor, 'approval.deleted', 'publishing_plans', id, null, {
+                name: plan.payload.name,
+                status: plan.status,
+                version
+            });
+            await client.query(
+                'DELETE FROM studio_delivery_history WHERE delivery_id IN (SELECT id FROM publishing_deliveries WHERE plan_id=$1)',
+                [id]
+            );
+            await client.query('DELETE FROM studio_automation_messages WHERE plan_id=$1', [id]);
+            await client.query('DELETE FROM studio_plan_history WHERE plan_id=$1', [id]);
+            await client.query('DELETE FROM publishing_deliveries WHERE plan_id=$1', [id]);
+            await client.query('DELETE FROM publishing_plans WHERE id=$1', [id]);
+            return { id, deleted: true };
         });
     }
     async claim() {
@@ -419,6 +545,25 @@ function publishingRouter({ repository, social, enabled = false }) {
             res.json(await repository.list(limit, offset));
         })
     );
+    router.get(
+        '/approvals',
+        handle(async (req, res) => {
+            const offset = Number(req.query.offset || 0);
+            const limit = Number(req.query.limit || 50);
+            const status = req.query.status || 'all';
+            if (
+                !Number.isInteger(offset) ||
+                offset < 0 ||
+                !Number.isInteger(limit) ||
+                limit < 1 ||
+                limit > 100 ||
+                !['all', 'pending', 'scheduled', 'rejected'].includes(status)
+            )
+                throw new PublishingError(400, 'Bộ lọc hoặc phân trang không hợp lệ.');
+            await repository.expirePending();
+            res.json(await repository.listApprovals(limit, offset, status, req.actor?.id));
+        })
+    );
     const write = handle(async (req, res) => {
         await repository.expirePending();
         await repository.expireScheduled();
@@ -443,7 +588,7 @@ function publishingRouter({ repository, social, enabled = false }) {
                     req.params.id
                 ])
             ).rows[0];
-            if (old && !['draft', 'pending', 'cancelled'].includes(old.status))
+            if (old && !['draft', 'pending', 'cancelled', 'rejected'].includes(old.status))
                 throw new PublishingError(403, 'Không được sửa kế hoạch đã lên lịch.');
         }
         if (
@@ -474,6 +619,20 @@ function publishingRouter({ repository, social, enabled = false }) {
     });
     router.post('/plans', write);
     router.put('/plans/:id', write);
+    router.delete(
+        '/plans/:id',
+        handle(async (req, res) => {
+            if (req.actor?.role !== 'admin')
+                throw new PublishingError(403, 'Chỉ Admin được xóa bài trong Omni Studio.');
+            if (
+                !uuid.test(req.params.id) ||
+                !Number.isInteger(req.body?.version) ||
+                req.body.version < 1
+            )
+                throw new PublishingError(400, 'ID hoặc phiên bản không hợp lệ.');
+            res.json(await repository.deletePlan(req.params.id, req.body.version, req.actor));
+        })
+    );
     router.post(
         '/plans/:id/approve',
         handle(async (req, res) => {
@@ -500,6 +659,24 @@ function publishingRouter({ repository, social, enabled = false }) {
                 if (!social.hasAccount(id))
                     throw new PublishingError(403, 'Tài khoản chưa được liên kết trên server.');
             res.json(await repository.write(req.params.id, plan, req.body.version, req.actor));
+        })
+    );
+    router.post(
+        '/plans/:id/reject',
+        handle(async (req, res) => {
+            if (req.actor && !['admin', 'manager'].includes(req.actor.role))
+                throw new PublishingError(403, 'Chỉ Admin/Manager được từ chối bài.');
+            const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim() : '';
+            if (
+                !uuid.test(req.params.id) ||
+                !Number.isInteger(req.body?.version) ||
+                req.body.version < 1 ||
+                !reason ||
+                reason.length > 500
+            )
+                throw new PublishingError(400, 'Cần nhập lý do từ chối, tối đa 500 ký tự.');
+            await repository.expirePending();
+            res.json(await repository.reject(req.params.id, req.body.version, reason, req.actor));
         })
     );
     router.post(

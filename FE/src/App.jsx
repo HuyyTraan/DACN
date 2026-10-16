@@ -238,6 +238,12 @@ export default function App({ user, onLogout }) {
         }
     }
     const [modal, setModal] = useState(null);
+    const [postsTab, setPostsTab] = useState('planner');
+    const [approvalNotice, setApprovalNotice] = useState({
+        items: [],
+        counts: { pending: 0 },
+        error: ''
+    });
     const [mobile, setMobile] = useState(false);
     const [toast, setToast] = useState('');
     const [period, setPeriod] = useState('month');
@@ -245,6 +251,28 @@ export default function App({ user, onLogout }) {
     const searchRef = useRef(null);
     const lock = useRef(false);
     const current = navigation.find((item) => item.id === page) || navigation[0];
+    useEffect(() => {
+        if (!['admin', 'manager'].includes(user.role)) return;
+        let active = true;
+        const refresh = async () => {
+            try {
+                const result = await socialRequest(
+                    '/api/publishing/approvals?status=pending&limit=5'
+                );
+                if (active) setApprovalNotice({ ...result, error: '' });
+            } catch (e) {
+                if (active) setApprovalNotice((current) => ({ ...current, error: e.message }));
+            }
+        };
+        refresh();
+        const timer = setInterval(refresh, 30000);
+        window.addEventListener('publishing-plans-changed', refresh);
+        return () => {
+            active = false;
+            clearInterval(timer);
+            window.removeEventListener('publishing-plans-changed', refresh);
+        };
+    }, [user.role]);
     async function load(forceDemo = false) {
         setLoading(true);
         setError('');
@@ -313,6 +341,7 @@ export default function App({ user, onLogout }) {
     function navigate(id) {
         location.hash = id;
         setPage(id);
+        if (id === 'posts') setPostsTab('planner');
         setMobile(false);
     }
     async function update(next, message = 'Đã lưu thay đổi') {
@@ -516,10 +545,10 @@ export default function App({ user, onLogout }) {
                         <button
                             className="icon-button notification"
                             onClick={() => setModal({ type: 'notifications' })}
-                            aria-label="Thông báo"
+                            aria-label={`Thông báo${approvalNotice.counts.pending ? `, ${approvalNotice.counts.pending} bài chờ duyệt` : ''}`}
                         >
                             <Bell size={19} />
-                            <i />
+                            {approvalNotice.counts.pending > 0 && <i />}
                         </button>
                         <Avatar name={user.name} size="small" />
                         <Button onClick={onLogout}>Đăng xuất</Button>
@@ -584,7 +613,7 @@ export default function App({ user, onLogout }) {
                     ) : ['connections', 'accounts', 'channels'].includes(current.id) ? (
                         <Connections />
                     ) : current.id === 'posts' ? (
-                        <SocialPosts />
+                        <SocialPosts initialTab={postsTab} />
                     ) : error ? (
                         <div className="error-panel" role="alert">
                             <ShieldCheck size={28} />
@@ -738,6 +767,44 @@ export default function App({ user, onLogout }) {
                         </div>
                     ) : modal.type === 'notifications' ? (
                         <div className="dialog-body">
+                            {['admin', 'manager'].includes(user.role) && (
+                                <div className="notice-item">
+                                    <FileText />
+                                    <div>
+                                        <strong>
+                                            {approvalNotice.counts.pending || 0} bài viết cần duyệt
+                                        </strong>
+                                        <p>
+                                            Email yêu cầu duyệt được xếp cho Admin/Manager và gửi
+                                            qua n8n khi workflow hoạt động.
+                                        </p>
+                                        {approvalNotice.error && (
+                                            <p role="alert">{approvalNotice.error}</p>
+                                        )}
+                                        {approvalNotice.items?.map((item) => (
+                                            <p key={item.id}>
+                                                {item.name} ·{' '}
+                                                {item.emailStatus === 'sent'
+                                                    ? 'Email đã gửi'
+                                                    : item.emailStatus === 'queued'
+                                                      ? 'Email chờ gửi'
+                                                      : item.emailStatus === 'sending'
+                                                        ? 'Email đang gửi'
+                                                        : 'Kiểm tra email trong Workflow & RPA'}
+                                            </p>
+                                        ))}
+                                        <Button
+                                            onClick={() => {
+                                                navigate('posts');
+                                                setPostsTab('approvals');
+                                                setModal(null);
+                                            }}
+                                        >
+                                            Mở bảng duyệt bài viết
+                                        </Button>
+                                    </div>
+                                </div>
+                            )}
                             <div className="notice-item">
                                 <MessageSquare />
                                 <div>
