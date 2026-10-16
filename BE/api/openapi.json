@@ -106,8 +106,8 @@
         },
         "/api/publish/facebook": {
             "post": {
-                "summary": "Đăng văn bản và một ảnh tùy chọn lên Page Facebook đã liên kết",
-                "description": "Cần PAGE_ID và PAGE_ACCESS_TOKEN trên server. Chỉ hỗ trợ text, không ảnh/bình luận/lịch đăng. Gọi Graph API v21.0 theo mã nguồn gốc. Cần xác minh phiên bản và quyền Meta trước khi dùng thật.",
+                "summary": "Đăng nội dung lên Page Facebook hoặc tài khoản Instagram đã liên kết",
+                "description": "Facebook hỗ trợ văn bản và ảnh tùy chọn. Instagram yêu cầu ảnh JPG; local có thể dùng Cloudflare Quick Tunnel tạm, hoặc cấu hình kho media S3-compatible công khai. Backend tạo media container, chờ xử lý rồi publish. Không tự retry khi kết quả chưa rõ.",
                 "requestBody": {
                     "required": true,
                     "content": {
@@ -182,7 +182,7 @@
         },
         "/api/social/accounts": {
             "get": {
-                "summary": "Lấy danh tính, avatar và trạng thái Page thật; không trả token",
+                "summary": "Lấy danh tính Page Facebook và tài khoản Instagram liên kết đã xác minh; không trả token",
                 "responses": {
                     "200": {
                         "description": "Thành công"

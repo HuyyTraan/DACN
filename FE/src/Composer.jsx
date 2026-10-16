@@ -184,6 +184,13 @@ export default function Composer({ post, onClose }) {
         event.target.value = '';
         if (!file) return;
         if (
+            selected.some((account) => account.platform === 'Instagram') &&
+            file.type !== 'image/jpeg'
+        ) {
+            setError('Instagram hiện chỉ nhận ảnh JPG.');
+            return;
+        }
+        if (
             !['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(file.type) ||
             file.size > 1048576
         ) {
@@ -254,6 +261,15 @@ export default function Composer({ post, onClose }) {
             return;
         }
         if (server.ready) {
+            if (
+                status !== 'Bản nháp' &&
+                selected.some((account) => account.platform === 'Instagram')
+            ) {
+                setError(
+                    'Lịch đăng và gửi duyệt Instagram chưa được hỗ trợ; chỉ có thể đăng ảnh ngay.'
+                );
+                return;
+            }
             setServerSaving(true);
             try {
                 const result = await socialRequest(
@@ -340,8 +356,11 @@ export default function Composer({ post, onClose }) {
         }
         const normalized = valid('Bản nháp');
         if (!normalized) return;
-        if (!selected.length || selected.some((a) => a.platform !== 'Facebook')) {
-            setError('Chỉ tài khoản Facebook đã xác minh có thể đăng ngay.');
+        if (
+            !selected.length ||
+            selected.some((a) => !['Facebook', 'Instagram'].includes(a.platform))
+        ) {
+            setError('Chỉ tài khoản Facebook hoặc Instagram đã xác minh mới có thể đăng ngay.');
             return;
         }
         if (activeFollowups(form.comments).length) {
@@ -371,7 +390,8 @@ export default function Composer({ post, onClose }) {
                     accountId: account.id,
                     accountName: account.name,
                     status: 'published',
-                    facebookPostId: body.facebookPostId,
+                    providerPostId: body.providerPostId || body.facebookPostId,
+                    platform: body.platform || account.platform,
                     permalink: body.permalink
                 });
             } catch (e) {
@@ -394,7 +414,7 @@ export default function Composer({ post, onClose }) {
             id: form.id || crypto.randomUUID(),
             status: results.every((r) => r.status === 'published') ? 'Đã đăng' : 'Cần kiểm tra',
             publishResults: results,
-            facebookPostId: results.find((r) => r.facebookPostId)?.facebookPostId,
+            facebookPostId: results.find((r) => r.platform === 'Facebook')?.providerPostId,
             accountId: selected[0].id,
             accountName: selected[0].name,
             accountAvatar: selected[0].avatar,
@@ -821,7 +841,7 @@ export default function Composer({ post, onClose }) {
                                 <p key={r.accountId}>
                                     <strong>{r.accountName}</strong>:{' '}
                                     {r.status === 'published'
-                                        ? `Đã đăng · ${r.facebookPostId}`
+                                        ? `Đã đăng · ${r.providerPostId}`
                                         : `${r.error} · Kiểm tra Page trước khi đăng lại.`}
                                 </p>
                             ))}
@@ -949,7 +969,8 @@ export default function Composer({ post, onClose }) {
                     ))}
                     <p className="preview-disclaimer">
                         Preview minh họa bố cục; giới hạn API và cách định dạng phụ thuộc nền tảng.
-                        Chỉ Facebook có adapter đăng thật.
+                        Facebook và Instagram hỗ trợ đăng ngay; Instagram cần ảnh JPG và media
+                        hosting khả dụng. Lịch worker hiện chỉ hỗ trợ Facebook.
                     </p>
                 </aside>
             </div>

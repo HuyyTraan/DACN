@@ -51,7 +51,8 @@ async function publishDurably(pool, social, body, actor) {
         "UPDATE studio_publish_requests SET status='published',result=$2::jsonb,updated_at=now() WHERE id=$1",
         [id, JSON.stringify(safePayload(result))]
     );
-    await audit(pool, actor, 'publish', 'facebook', id, null, result);
+    const platform = body.accountId?.startsWith('instagram:') ? 'instagram' : 'facebook';
+    await audit(pool, actor, 'publish', platform, id, null, result);
     return result;
 }
 module.exports = { publishDurably };

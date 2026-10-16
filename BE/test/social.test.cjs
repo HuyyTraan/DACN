@@ -8,6 +8,7 @@ const path = require('node:path');
 const axios = require('axios');
 const nodeHttp = require('node:http');
 const { createSocial, TokenVault, decodeImage } = require('../server/social');
+const { withTemporaryPublicImage } = require('../server/instagram-media-tunnel');
 
 async function withApi(service, run) {
     const app = express();
@@ -30,7 +31,7 @@ async function withApi(service, run) {
         await new Promise((resolve) => server.close(resolve));
     }
 }
-function setup(extra = {}) {
+function setup(extra = {}, linkedInstagram = null) {
     const env = {
         PAGE_ID: '123',
         PAGE_ACCESS_TOKEN: 'secret-page-token',
@@ -50,7 +51,9 @@ function setup(extra = {}) {
                         data: [
                             'pages_show_list',
                             'pages_read_engagement',
-                            'pages_manage_posts'
+                            'pages_manage_posts',
+                            'instagram_basic',
+                            'instagram_content_publish'
                         ].map((permission) => ({ permission, status: 'granted' }))
                     }
                 };
@@ -82,9 +85,22 @@ function setup(extra = {}) {
                                 name: 'ITM',
                                 access_token: 'oauth-page-secret',
                                 tasks: ['CREATE_CONTENT'],
-                                picture: { data: { url: 'https://example.com/avatar.png' } }
+                                picture: { data: { url: 'https://example.com/avatar.png' } },
+                                ...(linkedInstagram
+                                    ? { instagram_business_account: linkedInstagram }
+                                    : {})
                             }
                         ]
+                    }
+                };
+            if (url.endsWith('/123') && options?.params?.fields === 'instagram_business_account')
+                return { data: { instagram_business_account: linkedInstagram } };
+            if (url.endsWith('/777'))
+                return {
+                    data: {
+                        id: '777',
+                        username: 'itm.ig',
+                        profile_picture_url: 'https://example.com/instagram-avatar.jpg'
                     }
                 };
             return {
@@ -97,7 +113,13 @@ function setup(extra = {}) {
         },
         post: async (url, body, options) => {
             calls.push({ method: 'POST', url, body, options });
+            if (url.endsWith('/777/media')) return { data: { id: 'container-1' } };
+            if (url.endsWith('/777/media_publish')) return { data: { id: 'ig-post-1' } };
             return { data: { id: '123_456', post_id: '123_456' } };
+        },
+        put: async (url, body, options) => {
+            calls.push({ method: 'PUT', url, body, options });
+            return { status: 200 };
         },
         delete: async (url, options) => {
             calls.push({ method: 'DELETE', url, options });
@@ -132,6 +154,122 @@ test('account identities are real, expired tokens disabled and secrets never ret
         assert.equal(
             (await (await fetch(base + '/api/social/accounts')).json()).accounts[0].canPublish,
             false
+        );
+    });
+});
+test('Instagram image publishing uploads to configured S3-compatible storage then publishes a finished Meta container', async () => {
+    const storage = {
+        INSTAGRAM_MEDIA_ENDPOINT: 'https://storage.example.test',
+        INSTAGRAM_MEDIA_BUCKET: 'public-media',
+        INSTAGRAM_MEDIA_REGION: 'auto',
+        INSTAGRAM_MEDIA_ACCESS_KEY: 'fake-access',
+        INSTAGRAM_MEDIA_SECRET_KEY: 'fake-secret',
+        INSTAGRAM_MEDIA_PUBLIC_ORIGIN: 'https://cdn.example.test'
+    };
+    const f = setup(storage, { id: '777', username: 'itm.ig' });
+    f.vault.write([
+        {
+            id: 'instagram:777',
+            platform: 'Instagram',
+            pageId: '123',
+            instagramUserId: '777',
+            token: 'secret-page-token'
+        }
+    ]);
+    f.http.get = async (url, options) => {
+        f.calls.push({ method: 'GET', url, options });
+        if (url.endsWith('/777')) return { data: { id: '777', username: 'itm.ig' } };
+        if (url.endsWith('/container-1')) return { data: { status_code: 'FINISHED' } };
+        if (url.endsWith('/123'))
+            return { data: { instagram_business_account: { id: '777', username: 'itm.ig' } } };
+        return { data: { id: '123', name: 'ITM' } };
+    };
+    const image = 'data:image/jpeg;base64,' + Buffer.from([255, 216, 255, 1, 2]).toString('base64');
+    const result = await f.service.publish({
+        accountId: 'instagram:777',
+        noiDungBaiViet: 'IG mock',
+        image,
+        requestId: crypto.randomUUID()
+    });
+    assert.equal(result.platform, 'Instagram');
+    assert.equal(result.providerPostId, 'ig-post-1');
+    assert.equal(f.calls.filter((call) => call.method === 'PUT').length, 1);
+    const container = f.calls.find((call) => call.url.endsWith('/777/media'));
+    assert.equal(container.body.caption, 'IG mock');
+    assert.match(container.body.image_url, /^https:\/\/cdn\.example\.test\/instagram\//);
+    assert.ok(f.calls.find((call) => call.url.endsWith('/777/media_publish')));
+    assert.ok(!JSON.stringify(result).includes('fake-secret'));
+});
+test('temporary Instagram media tunnel exposes only the one-time image path and closes it after publishing', async () => {
+    const { EventEmitter } = require('node:events');
+    const { PassThrough } = require('node:stream');
+    const image = { buffer: Buffer.from('fake-jpeg'), mime: 'image/jpeg', extension: 'jpg' };
+    let origin;
+    let child;
+    const result = await withTemporaryPublicImage(
+        image,
+        async (publicUrl) => {
+            assert.match(
+                publicUrl,
+                /^https:\/\/test-tunnel\.trycloudflare\.com\/media\/[a-f0-9]{48}\.jpg$/
+            );
+            const url = new URL(publicUrl);
+            const key = url.pathname;
+            const response = await fetch(`${origin}${key}`);
+            assert.equal(response.headers.get('content-type'), 'image/jpeg');
+            assert.deepEqual(Buffer.from(await response.arrayBuffer()), image.buffer);
+            assert.equal((await fetch(`${origin}/api/social/accounts`)).status, 404);
+            return 'published';
+        },
+        {
+            binaryPath: 'mock-cloudflared',
+            spawnProcess: (_binary, args) => {
+                origin = args[3].replace('127.0.0.1', '127.0.0.1');
+                child = new EventEmitter();
+                child.stdout = new PassThrough();
+                child.stderr = new PassThrough();
+                child.exitCode = null;
+                child.kill = () => {
+                    child.exitCode = 0;
+                    return true;
+                };
+                setImmediate(() =>
+                    child.stdout.write(
+                        'https://test-tunnel.trycloudflare.com\nRegistered tunnel connection'
+                    )
+                );
+                return child;
+            }
+        }
+    );
+    assert.equal(result, 'published');
+    assert.equal(child.exitCode, 0);
+    await assert.rejects(fetch(origin + '/media/anything.jpg'));
+});
+test('linked professional Instagram identity is discovered but publishing stays disabled when media hosting is explicitly off', async () => {
+    const fixture = setup(
+        { INSTAGRAM_MEDIA_TUNNEL_ENABLED: 'false' },
+        { id: '777', username: 'itm.ig' }
+    );
+    await withApi(fixture.service, async (base) => {
+        const body = await (await fetch(base + '/api/social/accounts')).json();
+        const instagram = body.accounts.find((account) => account.platform === 'Instagram');
+        assert.equal(instagram.id, 'instagram:777');
+        assert.equal(instagram.name, 'itm.ig');
+        assert.equal(instagram.status, 'connected');
+        assert.equal(instagram.canPublish, false);
+        assert.match(instagram.publishBlockedReason, /kho media công khai/);
+        assert.ok(!JSON.stringify(body).includes('secret-page-token'));
+        assert.equal(
+            (await fetch(base + '/api/social/accounts/instagram%3A777/posts')).status,
+            501
+        );
+        await assert.rejects(
+            fixture.service.publish({
+                accountId: 'instagram:777',
+                noiDungBaiViet: 'Instagram test'
+            }),
+            (error) => error.status === 503
         );
     });
 });
@@ -224,13 +362,16 @@ test('photo uploads use binary multipart and repeat publish is deduplicated', as
         decodeImage('data:image/png;base64,' + Buffer.alloc(1024 * 1024 + 1).toString('base64'))
     );
 });
-test('OAuth state binds browser session; selection uses server-side Page tokens only', async () => {
-    const f = setup();
+test('OAuth state binds browser session; selection stores linked Instagram token only on the server', async () => {
+    const f = setup({}, { id: '777', username: 'itm.ig' });
     await withApi(f.service, async (base) => {
         const start = await fetch(base + '/api/social/facebook/connect', { redirect: 'manual' });
         assert.equal(start.status, 302);
         const cookie = start.headers.get('set-cookie').split(';')[0];
-        const state = new URL(start.headers.get('location')).searchParams.get('state');
+        const authorization = new URL(start.headers.get('location'));
+        const state = authorization.searchParams.get('state');
+        assert.match(authorization.searchParams.get('scope'), /instagram_basic/);
+        assert.match(authorization.searchParams.get('scope'), /instagram_content_publish/);
         const bad = await fetch(base + '/api/social/facebook/callback?state=wrong&code=test', {
             headers: { Cookie: cookie },
             redirect: 'manual'
@@ -246,6 +387,7 @@ test('OAuth state binds browser session; selection uses server-side Page tokens 
             await fetch(base + '/api/social/facebook/pages', { headers: { Cookie: cookie } })
         ).json();
         assert.equal(pages.pages[0].name, 'ITM');
+        assert.equal(pages.pages[0].instagramAccount.username, 'itm.ig');
         assert.ok(!JSON.stringify(pages).includes('secret'));
         const choose = (ids) =>
             fetch(base + '/api/social/facebook/pages', {
@@ -256,6 +398,9 @@ test('OAuth state binds browser session; selection uses server-side Page tokens 
         assert.equal((await choose(['999'])).status, 403);
         assert.equal((await choose(['123'])).status, 200);
         assert.equal(f.vault.read()[0].token, 'oauth-page-secret');
+        assert.equal(f.vault.read()[1].id, 'instagram:777');
+        assert.equal(f.vault.read()[1].platform, 'Instagram');
+        assert.equal(f.vault.read()[1].token, 'oauth-page-secret');
         assert.equal((await choose(['123'])).status, 401);
         assert.equal(
             (

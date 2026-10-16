@@ -113,8 +113,13 @@ export function Connections() {
                                         <strong>{account.name}</strong>
                                         <small>
                                             <Platform name={account.platform} /> · ID{' '}
-                                            {account.pageId}
+                                            {account.instagramUserId || account.pageId}
                                         </small>
+                                        {account.platform === 'Instagram' && account.pageId && (
+                                            <small>
+                                                Liên kết Facebook Page ID {account.pageId}
+                                            </small>
+                                        )}
                                     </div>
                                 </div>
                                 <Badge
@@ -125,6 +130,14 @@ export function Connections() {
                                     }
                                 />
                                 {account.error && <p className="danger-text">{account.error}</p>}
+                                {account.publishBlockedReason && (
+                                    <p className="hint">{account.publishBlockedReason}</p>
+                                )}
+                                {account.instagramLinkError && (
+                                    <p className="hint">
+                                        Kiểm tra liên kết Instagram: {account.instagramLinkError}
+                                    </p>
+                                )}
                                 <div className="account-actions">
                                     <Button
                                         disabled={!account.canPublish}
@@ -140,13 +153,17 @@ export function Connections() {
                                         Tạo bài viết
                                     </Button>
                                     <Button
-                                        disabled={!account.canPublish}
+                                        disabled={
+                                            !account.canPublish || account.platform === 'Instagram'
+                                        }
                                         onClick={() => {
                                             selectSocialAccount(account.id);
                                             navigate('posts');
                                         }}
                                     >
-                                        Xem bài trên Page
+                                        {account.platform === 'Instagram'
+                                            ? 'Đọc bài Instagram chưa hỗ trợ'
+                                            : 'Xem bài trên Page'}
                                     </Button>
                                     {account.source === 'oauth' && (
                                         <Button
@@ -196,6 +213,14 @@ export function Connections() {
                                 <span>
                                     {page.name}
                                     <small>ID {page.id}</small>
+                                    {page.instagramAccount && (
+                                        <small>
+                                            Instagram đã liên kết
+                                            {page.instagramAccount.username
+                                                ? ` @${page.instagramAccount.username}`
+                                                : ` ID ${page.instagramAccount.id}`}
+                                        </small>
+                                    )}
                                 </span>
                             </label>
                         ))}
@@ -218,9 +243,11 @@ export function Connections() {
                         <div className="provider-card" key={provider.name}>
                             <Platform name={provider.name} />
                             <p>
-                                {provider.supported
-                                    ? 'Liên kết Page, xem/sửa/xóa bài đã đăng và đăng văn bản kèm ảnh.'
-                                    : 'Chưa triển khai adapter/API cho nền tảng này. Tài khoản sẽ không xuất hiện trong trình soạn.'}
+                                {provider.name === 'Instagram'
+                                    ? 'Tài khoản Professional liên kết với Page có thể được phát hiện. Đăng local dùng Cloudflare Tunnel tạm; triển khai cần kho media công khai.'
+                                    : provider.supported
+                                      ? 'Liên kết Page, xem/sửa/xóa bài đã đăng và đăng văn bản kèm ảnh.'
+                                      : 'Chưa triển khai adapter/API cho nền tảng này. Tài khoản sẽ không xuất hiện trong trình soạn.'}
                             </p>
                             {provider.supported && social.oauthConfigured ? (
                                 <a className="button primary" href="/api/social/facebook/connect">

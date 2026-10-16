@@ -3,6 +3,7 @@ const axios = require('axios');
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
+const { withTemporaryPublicImage, cloudflaredAvailable } = require('./instagram-media-tunnel');
 
 const providers = ['Facebook', 'Instagram', 'Google', 'TikTok', 'YouTube', 'Zalo', 'LinkedIn', 'X'];
 class SocialError extends Error {
@@ -18,10 +19,10 @@ function publicError(error) {
         status: code === 190 ? 401 : [10, 200].includes(code) ? 403 : 502,
         error:
             code === 190
-                ? 'Token Facebook không hợp lệ hoặc đã hết hạn. Hãy liên kết lại.'
+                ? 'Token Meta không hợp lệ hoặc đã hết hạn. Hãy liên kết lại tài khoản.'
                 : [10, 200].includes(code)
-                  ? 'Facebook từ chối quyền. Kiểm tra quyền đăng/đọc bài và quyền quản lý Page.'
-                  : 'Không thể hoàn tất yêu cầu với Facebook. Kiểm tra kết nối và thử lại.',
+                  ? 'Meta từ chối quyền. Kiểm tra quyền đăng/đọc nội dung và tài khoản đã liên kết.'
+                  : 'Không thể hoàn tất yêu cầu với Meta. Kiểm tra kết nối và trạng thái tài khoản.',
         ...(Number.isInteger(code) ? { providerCode: code } : {})
     };
 }
@@ -45,6 +46,60 @@ function decodeImage(value) {
     };
     if (!signatures[type]) throw new SocialError(400, 'Nội dung file không khớp định dạng ảnh.');
     return { buffer, mime: `image/${type}`, extension: type === 'jpeg' ? 'jpg' : type };
+}
+function mediaStorageConfigured(env) {
+    return Boolean(
+        env.INSTAGRAM_MEDIA_ENDPOINT &&
+        env.INSTAGRAM_MEDIA_BUCKET &&
+        env.INSTAGRAM_MEDIA_ACCESS_KEY &&
+        env.INSTAGRAM_MEDIA_SECRET_KEY &&
+        /^https:\/\//.test(env.INSTAGRAM_MEDIA_PUBLIC_ORIGIN || '') &&
+        /^https:\/\//.test(env.INSTAGRAM_MEDIA_ENDPOINT)
+    );
+}
+function mediaHostingAvailable(env) {
+    return (
+        mediaStorageConfigured(env) ||
+        (env.INSTAGRAM_MEDIA_TUNNEL_ENABLED !== 'false' && cloudflaredAvailable())
+    );
+}
+function hmac(key, value, encoding) {
+    return crypto.createHmac('sha256', key).update(value, 'utf8').digest(encoding);
+}
+async function putPublicMedia(env, http, image) {
+    if (!mediaStorageConfigured(env))
+        throw new SocialError(503, 'Cần cấu hình kho media công khai Instagram trên BE/.env.');
+    const endpoint = new URL(env.INSTAGRAM_MEDIA_ENDPOINT);
+    const region = env.INSTAGRAM_MEDIA_REGION || 'auto';
+    const key = `instagram/${crypto.randomUUID()}.${image.extension}`;
+    const basePath = endpoint.pathname.replace(/\/$/, '');
+    const objectPath = `${basePath}/${encodeURIComponent(env.INSTAGRAM_MEDIA_BUCKET)}/${key.split('/').map(encodeURIComponent).join('/')}`;
+    const url = new URL(endpoint);
+    url.pathname = objectPath;
+    const amzDate = new Date().toISOString().replace(/[:-]|\.\d{3}/g, '');
+    const day = amzDate.slice(0, 8);
+    const payloadHash = crypto.createHash('sha256').update(image.buffer).digest('hex');
+    const signedHeaders = 'host;x-amz-content-sha256;x-amz-date';
+    const canonicalHeaders = `host:${url.host}\nx-amz-content-sha256:${payloadHash}\nx-amz-date:${amzDate}\n`;
+    const canonicalRequest = `PUT\n${url.pathname}\n\n${canonicalHeaders}${signedHeaders}\n${payloadHash}`;
+    const scope = `${day}/${region}/s3/aws4_request`;
+    const stringToSign = `AWS4-HMAC-SHA256\n${amzDate}\n${scope}\n${crypto.createHash('sha256').update(canonicalRequest).digest('hex')}`;
+    const dateKey = hmac(`AWS4${env.INSTAGRAM_MEDIA_SECRET_KEY}`, day);
+    const regionKey = hmac(dateKey, region);
+    const serviceKey = hmac(regionKey, 's3');
+    const signingKey = hmac(serviceKey, 'aws4_request');
+    const signature = hmac(signingKey, stringToSign, 'hex');
+    await http.put(url.toString(), image.buffer, {
+        timeout: 20000,
+        headers: {
+            Authorization: `AWS4-HMAC-SHA256 Credential=${env.INSTAGRAM_MEDIA_ACCESS_KEY}/${scope}, SignedHeaders=${signedHeaders}, Signature=${signature}`,
+            'Content-Type': image.mime,
+            'Content-Length': image.buffer.length,
+            'x-amz-content-sha256': payloadHash,
+            'x-amz-date': amzDate
+        }
+    });
+    return `${env.INSTAGRAM_MEDIA_PUBLIC_ORIGIN.replace(/\/$/, '')}/${key.split('/').map(encodeURIComponent).join('/')}`;
 }
 class TokenVault {
     constructor(env, file = path.join(__dirname, '../.data/social-tokens.enc')) {
@@ -100,10 +155,16 @@ class TokenVault {
         fs.renameSync(`${this.file}.tmp`, this.file);
     }
 }
-function createSocial({ env = process.env, http = axios, vault = new TokenVault(env) } = {}) {
+function createSocial({
+    env = process.env,
+    http = axios,
+    vault = new TokenVault(env),
+    temporaryMedia = withTemporaryPublicImage
+} = {}) {
     const router = express.Router();
     const sessions = new Map();
     const requests = new Map();
+    const discoveredAccounts = new Map();
     const version = () =>
         /^v\d+\.\d+$/.test(env.GRAPH_API_VERSION || '') ? env.GRAPH_API_VERSION : 'v21.0';
     const graph = () => `https://graph.facebook.com/${version()}`;
@@ -132,8 +193,8 @@ function createSocial({ env = process.env, http = axios, vault = new TokenVault(
                 token: env.PAGE_ACCESS_TOKEN,
                 source: 'env'
             });
-        for (const account of vault.read())
-            accounts.set(account.id, { ...account, source: 'oauth' });
+        for (const account of [...vault.read(), ...discoveredAccounts.values()])
+            accounts.set(account.id, { ...account, source: account.source || 'oauth' });
         return [...accounts.values()];
     };
     const credential = (id) => {
@@ -142,6 +203,31 @@ function createSocial({ env = process.env, http = axios, vault = new TokenVault(
         return account;
     };
     const metadata = async (account) => {
+        if (account.platform === 'Instagram') {
+            const response = await http.get(
+                `${graph()}/${account.instagramUserId}`,
+                options(account.token, { fields: 'id,username,profile_picture_url' })
+            );
+            if (response.data.id !== account.instagramUserId)
+                throw new SocialError(401, 'Token không thuộc tài khoản Instagram đã liên kết.');
+            return {
+                id: account.id,
+                pageId: account.pageId,
+                instagramUserId: account.instagramUserId,
+                platform: 'Instagram',
+                name:
+                    response.data.username ||
+                    account.name ||
+                    `Instagram ${account.instagramUserId}`,
+                avatar: response.data.profile_picture_url || '',
+                source: account.source,
+                status: 'connected',
+                canPublish: mediaHostingAvailable(env),
+                publishBlockedReason: mediaHostingAvailable(env)
+                    ? ''
+                    : 'Cần cài Cloudflare Tunnel hoặc cấu hình kho media công khai để Meta tải ảnh.'
+            };
+        }
         const response = await http.get(
             `${graph()}/me`,
             options(account.token, { fields: 'id,name,picture.type(large)' })
@@ -159,6 +245,23 @@ function createSocial({ env = process.env, http = axios, vault = new TokenVault(
             source: account.source,
             status: 'connected',
             canPublish: true
+        };
+    };
+    const linkedInstagram = async (account) => {
+        const response = await http.get(
+            `${graph()}/${account.pageId}`,
+            options(account.token, { fields: 'instagram_business_account' })
+        );
+        const instagramUserId = response.data.instagram_business_account?.id;
+        if (typeof instagramUserId !== 'string' || !/^\d+$/.test(instagramUserId)) return null;
+        return {
+            id: `instagram:${instagramUserId}`,
+            platform: 'Instagram',
+            pageId: account.pageId,
+            instagramUserId,
+            token: account.token,
+            name: response.data.instagram_business_account.username || account.name,
+            source: account.source
         };
     };
     const safe = (handler) => async (req, res) => {
@@ -191,25 +294,61 @@ function createSocial({ env = process.env, http = axios, vault = new TokenVault(
     router.get(
         '/accounts',
         safe(async (req, res) => {
-            const accounts = await Promise.all(
-                credentials().map(async (account) => {
-                    try {
-                        return await metadata(account);
-                    } catch (error) {
-                        return {
-                            id: account.id,
-                            pageId: account.pageId,
-                            name: account.name || `Facebook Page ${account.pageId}`,
-                            platform: 'Facebook',
-                            avatar: '',
-                            canPublish: false,
-                            status: 'needs_reconnect',
-                            error: publicError(error).error,
-                            source: account.source
-                        };
-                    }
-                })
-            );
+            const saved = credentials();
+            const pages = saved.filter((account) => account.platform !== 'Instagram');
+            const accounts = [];
+            for (const account of pages) {
+                try {
+                    accounts.push(await metadata(account));
+                } catch (error) {
+                    accounts.push({
+                        id: account.id,
+                        pageId: account.pageId,
+                        name: account.name || `Facebook Page ${account.pageId}`,
+                        platform: 'Facebook',
+                        avatar: '',
+                        canPublish: false,
+                        status: 'needs_reconnect',
+                        error: publicError(error).error,
+                        source: account.source
+                    });
+                    continue;
+                }
+                try {
+                    for (const [id, discovered] of discoveredAccounts)
+                        if (discovered.pageId === account.pageId) discoveredAccounts.delete(id);
+                    const instagram = await linkedInstagram(account);
+                    if (instagram) discoveredAccounts.set(instagram.id, instagram);
+                } catch (error) {
+                    // Keep Facebook available when Instagram permissions are missing.
+                    accounts[accounts.length - 1].instagramLinkError = publicError(error).error;
+                }
+            }
+            const instagramAccounts = [
+                ...new Map(
+                    [...saved, ...discoveredAccounts.values()]
+                        .filter((account) => account.platform === 'Instagram')
+                        .map((account) => [account.id, account])
+                ).values()
+            ];
+            for (const account of instagramAccounts) {
+                try {
+                    accounts.push(await metadata(account));
+                } catch (error) {
+                    accounts.push({
+                        id: account.id,
+                        pageId: account.pageId,
+                        instagramUserId: account.instagramUserId,
+                        name: account.name || `Instagram ${account.instagramUserId}`,
+                        platform: 'Instagram',
+                        avatar: '',
+                        canPublish: false,
+                        status: 'needs_reconnect',
+                        error: publicError(error).error,
+                        source: account.source
+                    });
+                }
+            }
             res.json({
                 accounts,
                 oauthConfigured: configured(),
@@ -242,7 +381,7 @@ function createSocial({ env = process.env, http = axios, vault = new TokenVault(
                 client_id: env.FACEBOOK_APP_ID,
                 redirect_uri: redirectUri(),
                 state,
-                scope: 'pages_show_list,pages_read_engagement,pages_manage_posts',
+                scope: 'pages_show_list,pages_read_engagement,pages_manage_posts,instagram_basic,instagram_content_publish',
                 response_type: 'code',
                 auth_type: 'rerequest'
             });
@@ -304,11 +443,13 @@ function createSocial({ env = process.env, http = axios, vault = new TokenVault(
                 );
             let after;
             const pages = [];
+            const instagramScopesGranted =
+                granted.has('instagram_basic') && granted.has('instagram_content_publish');
             for (let n = 0; n < 10; n++) {
                 const response = await http.get(
                     `${graph()}/me/accounts`,
                     options(long.data.access_token, {
-                        fields: 'id,name,access_token,tasks,picture.type(large)',
+                        fields: `id,name,access_token,tasks,picture.type(large)${instagramScopesGranted ? ',instagram_business_account' : ''}`,
                         limit: 100,
                         ...(after ? { after } : {})
                     })
@@ -350,7 +491,13 @@ function createSocial({ env = process.env, http = axios, vault = new TokenVault(
                     pages: (session.pages || []).map((p) => ({
                         id: p.id,
                         name: p.name,
-                        avatar: p.picture?.data?.url || ''
+                        avatar: p.picture?.data?.url || '',
+                        instagramAccount: p.instagram_business_account?.id
+                            ? {
+                                  id: p.instagram_business_account.id,
+                                  username: p.instagram_business_account.username || ''
+                              }
+                            : null
                     }))
                 });
             } catch (error) {
@@ -382,8 +529,23 @@ function createSocial({ env = process.env, http = axios, vault = new TokenVault(
                     token: page.access_token,
                     name: page.name
                 });
-            if (existing.size > 50)
-                throw new SocialError(400, 'Tối đa 50 Page trong một workspace local.');
+            for (const page of selected) {
+                const instagramUserId = page.instagram_business_account?.id;
+                if (typeof instagramUserId === 'string' && /^\d+$/.test(instagramUserId))
+                    existing.set(`instagram:${instagramUserId}`, {
+                        id: `instagram:${instagramUserId}`,
+                        platform: 'Instagram',
+                        pageId: page.id,
+                        instagramUserId,
+                        token: page.access_token,
+                        name: page.instagram_business_account.username || page.name
+                    });
+            }
+            if (existing.size > 100)
+                throw new SocialError(
+                    400,
+                    'Tối đa 50 Facebook Page và tài khoản Instagram liên kết.'
+                );
             vault.write([...existing.values()]);
             sessions.delete(cookie);
             res.clearCookie('omni_social', { path: '/api/social' });
@@ -407,6 +569,8 @@ function createSocial({ env = process.env, http = axios, vault = new TokenVault(
         '/accounts/:id/posts',
         safe(async (req, res) => {
             const account = credential(req.params.id);
+            if (account.platform === 'Instagram')
+                throw new SocialError(501, 'Chưa triển khai đọc bài Instagram.');
             const after = req.query.after;
             const range = {};
             for (const key of ['since', 'until']) {
@@ -492,6 +656,18 @@ function createSocial({ env = process.env, http = axios, vault = new TokenVault(
         if (!body.accountId && (!env.PAGE_ID || !env.PAGE_ACCESS_TOKEN))
             throw new SocialError(503, 'Chưa cấu hình tài khoản Facebook trên máy chủ');
         const account = credential(body.accountId || `facebook:${env.PAGE_ID}`);
+        const platform = account.platform || 'Facebook';
+        if (platform === 'Instagram' && text.length > 2200)
+            throw new SocialError(400, 'Chú thích Instagram vượt giới hạn 2.200 ký tự.');
+        if (platform === 'Instagram' && !mediaHostingAvailable(env))
+            throw new SocialError(
+                503,
+                'Cần cài cloudflared để tạo URL ảnh tạm, hoặc cấu hình kho media S3-compatible.'
+            );
+        if (account.platform === 'Instagram' && !image)
+            throw new SocialError(400, 'Bài Instagram cần đính kèm ảnh JPG.');
+        if (account.platform === 'Instagram' && image.mime !== 'image/jpeg')
+            throw new SocialError(400, 'Instagram hiện chỉ nhận ảnh JPG.');
         const requestId = body.requestId;
         if (requestId && (typeof requestId !== 'string' || !/^[a-f0-9-]{36}$/i.test(requestId)))
             throw new SocialError(400, 'Request ID không hợp lệ.');
@@ -515,7 +691,46 @@ function createSocial({ env = process.env, http = axios, vault = new TokenVault(
             requests.set(requestId, { fingerprint, expires: Date.now() + 24 * 3600000 });
         }
         let response;
-        if (image) {
+        let postId;
+        if (platform === 'Instagram') {
+            const publishFromUrl = async (imageUrl) => {
+                const container = await http.post(
+                    `${graph()}/${account.instagramUserId}/media`,
+                    { image_url: imageUrl, caption: text },
+                    options(account.token)
+                );
+                if (!container.data.id)
+                    throw new SocialError(502, 'Meta không tạo được media container.');
+                let status;
+                for (let attempt = 0; attempt < 12; attempt++) {
+                    const state = await http.get(
+                        `${graph()}/${container.data.id}`,
+                        options(account.token, { fields: 'status_code,status' })
+                    );
+                    status = state.data.status_code;
+                    if (status === 'FINISHED') break;
+                    if (status === 'ERROR' || status === 'EXPIRED')
+                        throw new SocialError(502, 'Meta không xử lý được ảnh Instagram.');
+                    await new Promise((resolve) => setTimeout(resolve, 1000));
+                }
+                if (status !== 'FINISHED')
+                    throw new SocialError(
+                        502,
+                        'Meta chưa xác nhận xử lý ảnh Instagram. Kiểm tra trạng thái trước khi gửi lại.'
+                    );
+                response = await http.post(
+                    `${graph()}/${account.instagramUserId}/media_publish`,
+                    { creation_id: container.data.id },
+                    options(account.token)
+                );
+                postId = response.data.id;
+            };
+            if (mediaStorageConfigured(env)) {
+                await publishFromUrl(await putPublicMedia(env, http, image));
+            } else {
+                await temporaryMedia(image, publishFromUrl);
+            }
+        } else if (image) {
             const form = new FormData();
             form.append(
                 'source',
@@ -534,13 +749,19 @@ function createSocial({ env = process.env, http = axios, vault = new TokenVault(
                 { message: text },
                 options(account.token)
             );
-        const postId = image ? response.data.post_id : response.data.id;
+        if (!postId) postId = image ? response.data.post_id : response.data.id;
         const result = {
             success: true,
-            message: 'Đã đăng lên Fanpage thành công!',
-            facebookPostId: postId || response.data.id,
+            message:
+                platform === 'Instagram'
+                    ? 'Đã đăng lên Instagram thành công!'
+                    : 'Đã đăng lên Fanpage thành công!',
+            providerPostId: postId || response.data.id,
+            platform,
+            ...(platform === 'Facebook' ? { facebookPostId: postId || response.data.id } : {}),
             accountId: account.id,
-            permalink: postId ? `https://www.facebook.com/${postId}` : ''
+            permalink:
+                platform === 'Instagram' ? '' : postId ? `https://www.facebook.com/${postId}` : ''
         };
         if (requestId) requests.get(requestId).result = result;
         return result;
