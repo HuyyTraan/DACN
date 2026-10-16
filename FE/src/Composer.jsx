@@ -995,7 +995,7 @@ export default function Composer({ post, onClose }) {
                 </fieldset>
                 <div className="composer-buttons">
                     <Button
-                        disabled={busy || hasSent || form.status === 'Đã hủy'}
+                        disabled={busy || hasSent || ['Đã hủy', 'Bị từ chối'].includes(form.status)}
                         onClick={() => save('Bản nháp')}
                     >
                         Lưu nháp
@@ -1052,7 +1052,8 @@ export default function Composer({ post, onClose }) {
                         disabled={busy || hasSent}
                         onClick={() =>
                             save(
-                                form.status === 'Đã hủy' || user.role === 'editor'
+                                ['Đã hủy', 'Bị từ chối'].includes(form.status) ||
+                                    user.role === 'editor'
                                     ? 'Chờ duyệt'
                                     : form.serverPlanId || form.id
                                       ? form.status
@@ -1062,7 +1063,7 @@ export default function Composer({ post, onClose }) {
                     >
                         {busy
                             ? 'Đang xử lý…'
-                            : form.status === 'Đã hủy'
+                            : ['Đã hủy', 'Bị từ chối'].includes(form.status)
                               ? 'Gửi lại lên workspace'
                               : user.role === 'editor'
                                 ? 'Gửi duyệt trong workspace'

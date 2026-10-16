@@ -15,6 +15,7 @@ export const publishingStates = [
     'Đã duyệt chưa đăng',
     'Đã đăng',
     'Đã hủy',
+    'Bị từ chối',
     'Bản nháp',
     'Đang đăng',
     'Lỗi',
@@ -26,6 +27,7 @@ export function planStatus(plan, delivery) {
     if (delivery?.status === 'unknown') return 'Cần kiểm tra';
     if (delivery?.status === 'failed') return 'Lỗi';
     if (plan.status === 'cancelled' || delivery?.status === 'cancelled') return 'Đã hủy';
+    if (plan.status === 'rejected') return 'Bị từ chối';
     if (plan.status === 'pending') return 'Chưa duyệt';
     return plan.status === 'scheduled' ? 'Đã duyệt chưa đăng' : 'Bản nháp';
 }
@@ -59,9 +61,25 @@ export function displayTime(instant, zone) {
     return { date: shifted.slice(0, 10), time: shifted.slice(11, 16) };
 }
 export function mergePublishedEvents(events, posts, zone) {
+    const references = (event) =>
+        [
+            event.providerPostId,
+            event.facebookPostId,
+            ...(event.publishResults || [])
+                .filter((result) => result.status === 'published')
+                .map((result) => result.facebookPostId)
+        ].filter(Boolean);
+    const eventByProviderId = new Map();
+    events.forEach((event) =>
+        references(event).forEach((id) => {
+            if (!eventByProviderId.has(id) || event.source === 'server')
+                eventByProviderId.set(id, event);
+        })
+    );
     const remote = posts
         .filter((p) => Number.isFinite(Date.parse(p.createdTime)))
         .map((p) => ({
+            ...(eventByProviderId.get(p.id) || {}),
             id: p.id,
             calendarId: `platform:${p.accountId}:${p.id}`,
             providerPostId: p.id,
@@ -80,16 +98,7 @@ export function mergePublishedEvents(events, posts, zone) {
         }));
     const ids = new Set(remote.map((p) => p.providerPostId));
     return [
-        ...events.filter((e) => {
-            const references = [
-                e.providerPostId,
-                e.facebookPostId,
-                ...(e.publishResults || [])
-                    .filter((r) => r.status === 'published')
-                    .map((r) => r.facebookPostId)
-            ].filter(Boolean);
-            return !references.length || !references.every((id) => ids.has(id));
-        }),
+        ...events.filter((e) => !references(e).length || !references(e).every((id) => ids.has(id))),
         ...new Map(remote.map((e) => [e.calendarId, e])).values()
     ];
 }
@@ -158,6 +167,7 @@ export function fromPlan(plan, accounts) {
             draft: 'Bản nháp',
             pending: 'Chờ duyệt',
             cancelled: 'Đã hủy',
+            rejected: 'Bị từ chối',
             scheduled: 'Đã lên lịch'
         }[plan.status],
         cancellationReason: plan.cancellationReason || '',

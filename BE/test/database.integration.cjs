@@ -265,6 +265,16 @@ test('real PostgreSQL: migrations, auth/RBAC/CSRF, history and restart persisten
     response = await request('/api/auth/users', {
         method: 'POST',
         body: {
+            name: 'Review manager',
+            email: 'manager@example.com',
+            password: 'Test manager password!',
+            role: 'manager'
+        }
+    });
+    assert.equal(response.status, 201);
+    response = await request('/api/auth/users', {
+        method: 'POST',
+        body: {
             name: 'Editor',
             email: 'editor@example.test',
             password: 'Test editor password!',
@@ -331,13 +341,210 @@ test('real PostgreSQL: migrations, auth/RBAC/CSRF, history and restart persisten
         waiting.version
     );
     const approvalMail = await pool.query(
-        "SELECT recipient_email,status FROM studio_automation_messages WHERE plan_id=$1 AND kind='approval_requested'",
+        "SELECT recipient_email,status FROM studio_automation_messages WHERE plan_id=$1 AND kind='approval_requested' ORDER BY recipient_email",
         [waiting.id]
     );
     assert.deepEqual(approvalMail.rows, [
-        { recipient_email: 'admin@example.com', status: 'queued' }
+        { recipient_email: 'admin@example.com', status: 'queued' },
+        { recipient_email: 'manager@example.com', status: 'queued' }
     ]);
-    assert.equal(await scanApprovalReminders(pool), 1);
+    response = await request(
+        '/api/auth/login',
+        {
+            method: 'POST',
+            body: { email: 'manager@example.com', password: 'Test manager password!' }
+        },
+        null
+    );
+    const manager = session(response);
+    response = await request('/api/publishing/plans', {
+        method: 'POST',
+        body: { ...pendingBody, name: 'Admin deletion test', status: 'scheduled' }
+    });
+    assert.equal(response.status, 201);
+    const toDelete = await response.json();
+    const deleteUrl = `/api/publishing/plans/${toDelete.id}`;
+    for (const identity of [manager, editor]) {
+        assert.equal(
+            (
+                await request(
+                    deleteUrl,
+                    { method: 'DELETE', body: { version: toDelete.version } },
+                    identity
+                )
+            ).status,
+            403
+        );
+    }
+    assert.equal(
+        (await request(deleteUrl, { method: 'DELETE', body: { version: toDelete.version + 1 } }))
+            .status,
+        409
+    );
+    assert.equal(
+        (await request(deleteUrl, { method: 'DELETE', body: { version: '1' } })).status,
+        400
+    );
+    await pool.query(
+        "UPDATE publishing_deliveries SET status='published',provider_post_id='page_external-post' WHERE plan_id=$1",
+        [toDelete.id]
+    );
+    response = await request(deleteUrl, { method: 'DELETE', body: { version: toDelete.version } });
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { id: toDelete.id, deleted: true });
+    for (const [table, column] of [
+        ['publishing_plans', 'id'],
+        ['publishing_deliveries', 'plan_id'],
+        ['studio_plan_history', 'plan_id'],
+        ['studio_automation_messages', 'plan_id']
+    ]) {
+        assert.equal(
+            (
+                await pool.query(`SELECT count(*)::int n FROM ${table} WHERE ${column}=$1`, [
+                    toDelete.id
+                ])
+            ).rows[0].n,
+            0
+        );
+    }
+    assert.equal(
+        (
+            await pool.query(
+                "SELECT count(*)::int n FROM studio_delivery_history WHERE provider_post_id='page_external-post'"
+            )
+        ).rows[0].n,
+        0
+    );
+    assert.equal(
+        (
+            await pool.query(
+                "SELECT count(*)::int n FROM studio_audit WHERE entity_id=$1 AND action='approval.deleted'",
+                [toDelete.id]
+            )
+        ).rows[0].n,
+        1
+    );
+    assert.equal(
+        (await request(deleteUrl, { method: 'DELETE', body: { version: toDelete.version } }))
+            .status,
+        404
+    );
+    response = await request('/api/publishing/plans', {
+        method: 'POST',
+        body: { ...pendingBody, name: 'Active delivery deletion guard', status: 'scheduled' }
+    });
+    const activePlan = await response.json();
+    await pool.query("UPDATE publishing_deliveries SET status='running' WHERE plan_id=$1", [
+        activePlan.id
+    ]);
+    assert.equal(
+        (
+            await request(`/api/publishing/plans/${activePlan.id}`, {
+                method: 'DELETE',
+                body: { version: activePlan.version }
+            })
+        ).status,
+        409
+    );
+    assert.equal(
+        (
+            await pool.query('SELECT count(*)::int n FROM publishing_plans WHERE id=$1', [
+                activePlan.id
+            ])
+        ).rows[0].n,
+        1
+    );
+    await pool.query("UPDATE publishing_deliveries SET status='cancelled' WHERE plan_id=$1", [
+        activePlan.id
+    ]);
+    assert.equal(
+        (
+            await request(`/api/publishing/plans/${activePlan.id}`, {
+                method: 'DELETE',
+                body: { version: activePlan.version }
+            })
+        ).status,
+        200
+    );
+    response = await request('/api/publishing/approvals?status=pending&limit=5');
+    assert.equal(response.status, 200);
+    let approvalList = await response.json();
+    assert.ok(approvalList.items.some((item) => item.id === waiting.id));
+    assert.ok(approvalList.counts.pending >= 1);
+    response = await request(
+        '/api/publishing/plans',
+        {
+            method: 'POST',
+            body: { ...pendingBody, name: 'Rejected review test' }
+        },
+        editor
+    );
+    assert.equal(response.status, 201);
+    const toReject = await response.json();
+    assert.equal(
+        (
+            await request(
+                `/api/publishing/plans/${toReject.id}/reject`,
+                {
+                    method: 'POST',
+                    body: { version: toReject.version, reason: 'Cần sửa nội dung' }
+                },
+                editor
+            )
+        ).status,
+        403
+    );
+    assert.equal(
+        (
+            await request(`/api/publishing/plans/${toReject.id}/reject`, {
+                method: 'POST',
+                body: { version: toReject.version, reason: '' }
+            })
+        ).status,
+        400
+    );
+    response = await request(`/api/publishing/plans/${toReject.id}/reject`, {
+        method: 'POST',
+        body: { version: toReject.version, reason: 'Cần sửa nội dung' }
+    });
+    assert.equal(response.status, 200);
+    assert.equal(
+        (
+            await request(`/api/publishing/plans/${toReject.id}/reject`, {
+                method: 'POST',
+                body: { version: toReject.version, reason: 'Lặp lại' }
+            })
+        ).status,
+        409
+    );
+    response = await request('/api/publishing/approvals?status=rejected');
+    approvalList = await response.json();
+    const rejectedReview = approvalList.items.find((item) => item.id === toReject.id);
+    assert.equal(rejectedReview.rejectionReason, 'Cần sửa nội dung');
+    assert.equal(rejectedReview.reviewedByName, 'Test administrator');
+    assert.ok(rejectedReview.reviewedAt);
+    assert.equal(
+        (
+            await pool.query('SELECT count(*)::int n FROM publishing_deliveries WHERE plan_id=$1', [
+                toReject.id
+            ])
+        ).rows[0].n,
+        0
+    );
+    response = await request(
+        `/api/publishing/plans/${toReject.id}`,
+        {
+            method: 'PUT',
+            body: { ...pendingBody, version: rejectedReview.version }
+        },
+        editor
+    );
+    assert.equal(response.status, 200);
+    assert.equal((await response.json()).status, 'pending');
+    response = await request('/api/publishing/approvals?status=pending');
+    approvalList = await response.json();
+    assert.equal(approvalList.items.find((item) => item.id === toReject.id).reviewedByName, null);
+    assert.equal(await scanApprovalReminders(pool), 4);
     assert.equal(await scanApprovalReminders(pool), 0);
     assert.equal(
         (
@@ -634,11 +841,27 @@ test('real PostgreSQL: migrations, auth/RBAC/CSRF, history and restart persisten
     const workerPlan = persisted.plans.find((p) => p.id === plan.id);
     assert.equal(workerPlan.deliveries[0].status, 'published');
     assert.equal(workerPlan.deliveries[0].provider_post_id, 'test-page_test-post');
+    const publishedReview = (
+        await (await request('/api/publishing/approvals?status=scheduled')).json()
+    ).items.find((item) => item.id === plan.id);
+    assert.equal(publishedReview.publishedCount, 1);
+    assert.equal(publishedReview.isLocked, true);
     assert.ok(
         (await pool.query('SELECT count(*)::int AS n FROM studio_delivery_history')).rows[0].n >= 3
     );
     const history = await (await request('/api/history')).json();
-    assert.ok(history.events.some((e) => e.entity === 'campaigns' && e.action === 'create'));
+    assert.ok(
+        history.events.some(
+            (e) => e.entity === 'publishing_plans' && e.action === 'approval.rejected'
+        )
+    );
+    assert.ok(
+        (
+            await pool.query(
+                "SELECT 1 FROM studio_audit WHERE entity='campaigns' AND action='create' LIMIT 1"
+            )
+        ).rows.length
+    );
     const snapshots = await (await request('/api/snapshots')).json();
     assert.ok(snapshots.snapshots.length > 0);
     const beforeDelete = await (await request('/api/workspace')).json();

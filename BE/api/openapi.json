@@ -758,7 +758,81 @@
                 ]
             }
         },
+        "/api/publishing/approvals": {
+            "get": {
+                "summary": "Bảng duyệt bài: pending, scheduled, rejected; kèm người xử lý, lý do, trạng thái email và deliveryCount/publishedCount/isLocked để phân biệt bài đã đăng",
+                "parameters": [
+                    {
+                        "in": "query",
+                        "name": "status",
+                        "schema": {
+                            "type": "string",
+                            "enum": ["all", "pending", "scheduled", "rejected"],
+                            "default": "all"
+                        }
+                    },
+                    {
+                        "in": "query",
+                        "name": "limit",
+                        "schema": { "type": "integer", "minimum": 1, "maximum": 100, "default": 50 }
+                    },
+                    {
+                        "in": "query",
+                        "name": "offset",
+                        "schema": { "type": "integer", "minimum": 0, "default": 0 }
+                    }
+                ],
+                "responses": {
+                    "200": { "description": "items, counts và nextOffset" },
+                    "400": { "description": "Bộ lọc hoặc phân trang không hợp lệ" },
+                    "401": { "description": "Cần đăng nhập" },
+                    "503": { "description": "DB/migration chưa sẵn sàng" }
+                },
+                "security": [{ "cookieAuth": [] }]
+            }
+        },
         "/api/publishing/plans/{id}": {
+            "delete": {
+                "summary": "Admin xóa vĩnh viễn kế hoạch và dữ liệu duyệt trong Omni Studio; không xóa bài Facebook",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": { "type": "string", "format": "uuid" }
+                    },
+                    {
+                        "in": "header",
+                        "name": "X-CSRF-Token",
+                        "required": true,
+                        "schema": { "type": "string" }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "required": ["version"],
+                                "properties": { "version": { "type": "integer", "minimum": 1 } }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": { "description": "Đã xóa bản ghi Omni Studio" },
+                    "400": { "description": "ID hoặc version không hợp lệ" },
+                    "401": { "description": "Cần đăng nhập" },
+                    "403": { "description": "Chỉ Admin được xóa, hoặc CSRF sai" },
+                    "404": { "description": "Không tìm thấy kế hoạch" },
+                    "409": {
+                        "description": "Version xung đột hoặc lượt đăng đang chạy/chưa rõ kết quả"
+                    },
+                    "503": { "description": "DB/migration chưa sẵn sàng" }
+                },
+                "security": [{ "cookieAuth": [] }]
+            },
             "put": {
                 "summary": "Thay nội dung/lịch trước khi bắt đầu đăng; Editor sửa pending phải giữ giờ đăng cách hiện tại ít nhất 60 phút; bắt buộc version",
                 "parameters": [
@@ -2074,6 +2148,49 @@
                 ]
             }
         },
+        "/api/publishing/plans/{id}/reject": {
+            "post": {
+                "summary": "Admin/Manager từ chối bài pending và lưu lý do; không tạo delivery",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": { "type": "string", "format": "uuid" }
+                    },
+                    {
+                        "in": "header",
+                        "name": "X-CSRF-Token",
+                        "required": true,
+                        "schema": { "type": "string" }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "required": ["version", "reason"],
+                                "properties": {
+                                    "version": { "type": "integer", "minimum": 1 },
+                                    "reason": { "type": "string", "minLength": 1, "maxLength": 500 }
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": { "description": "Bài đã bị từ chối, version tăng" },
+                    "400": { "description": "Thiếu hoặc sai lý do/version" },
+                    "401": { "description": "Cần đăng nhập" },
+                    "403": { "description": "Chỉ Admin/Manager hoặc CSRF sai" },
+                    "409": { "description": "Bài không còn pending hoặc version cũ" },
+                    "503": { "description": "DB/migration chưa sẵn sàng" }
+                },
+                "security": [{ "cookieAuth": [] }]
+            }
+        },
         "/api/automation/status": {
             "get": {
                 "summary": "Trạng thái hàng email duyệt bài và lịch sử RPA",
@@ -2418,7 +2535,7 @@
                     },
                     "status": {
                         "type": "string",
-                        "enum": ["draft", "pending", "scheduled", "cancelled"],
+                        "enum": ["draft", "pending", "scheduled", "cancelled", "rejected"],
                         "description": "pending: chưa duyệt, quá giờ tự cancelled; scheduled: đã duyệt, nhưng lượt queued quá giờ hơn 2 phút sẽ bị hủy và không được worker đăng muộn. Kế hoạch chỉ cancelled khi mọi lượt phiên bản hiện tại đều hủy. Hủy hoàn toàn phải gửi lại pending với giờ tương lai. Kết quả thực tế nằm trong deliveries."
                     },
                     "deliveries": {

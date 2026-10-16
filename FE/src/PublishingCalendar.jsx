@@ -99,6 +99,11 @@ export default function PublishingCalendar() {
         };
     }, []);
     useEffect(() => {
+        const refresh = () => setPlatformRefresh((value) => value + 1);
+        window.addEventListener('platform-posts-changed', refresh);
+        return () => window.removeEventListener('platform-posts-changed', refresh);
+    }, []);
+    useEffect(() => {
         if (scroll.current && view !== 'month') {
             const hourHeight =
                 scroll.current.querySelector('.planner-hour')?.getBoundingClientRect().height ||
@@ -414,7 +419,7 @@ export default function PublishingCalendar() {
                     {event.time}
                 </small>
                 <span
-                    className={`planner-state-tag status-${event.status === 'Đã đăng' ? 'published' : event.status === 'Đã hủy' ? 'cancelled' : event.status === 'Chưa duyệt' ? 'pending' : 'approved'}`}
+                    className={`planner-state-tag status-${event.status === 'Đã đăng' ? 'published' : event.status === 'Đã hủy' ? 'cancelled' : event.status === 'Bị từ chối' ? 'rejected' : event.status === 'Chưa duyệt' ? 'pending' : 'approved'}`}
                 >
                     {event.status}
                 </span>
@@ -424,6 +429,16 @@ export default function PublishingCalendar() {
                             event.cancellationReason ||
                             'Đã hủy lịch đăng'}
                     </p>
+                )}
+                {event.status === 'Bị từ chối' && (
+                    <p className="planner-cancel-reason">
+                        {event.plan?.rejectionReason || 'Quản lý đã từ chối bài này.'}
+                    </p>
+                )}
+                {event.status === 'Bị từ chối' && user.role !== 'viewer' && (
+                    <button className="text-link" onClick={() => edit(event)}>
+                        Sửa & gửi lại
+                    </button>
                 )}
                 {event.status === 'Đã hủy' &&
                     user.role !== 'viewer' &&

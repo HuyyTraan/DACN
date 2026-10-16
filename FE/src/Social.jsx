@@ -4,6 +4,7 @@ import { useWorkspace } from './App.jsx';
 import { Avatar, Badge, Button, Empty, Modal, Panel, Platform } from './components.jsx';
 import { EntityPage } from './pages.jsx';
 import PublishingCalendar from './PublishingCalendar.jsx';
+import ApprovalBoard from './ApprovalBoard.jsx';
 import { apiFetch } from './Auth.jsx';
 
 export async function socialRequest(url, options = {}) {
@@ -263,7 +264,7 @@ export function Connections() {
         </div>
     );
 }
-export function SocialPosts() {
+export function SocialPosts({ initialTab = 'planner' }) {
     const {
         social,
         socialLoading,
@@ -284,9 +285,12 @@ export function SocialPosts() {
     const accounts = social.accounts.filter(
         (a) => a.status === 'connected' && a.platform === platform
     );
-    const [tab, setTab] = useState('planner');
+    const [tab, setTab] = useState(initialTab);
+    useEffect(() => setTab(initialTab), [initialTab]);
     const [accountId, setAccountId] = useState(activeSocialAccountId);
     const [posts, setPosts] = useState([]);
+    const [plannedPostIds, setPlannedPostIds] = useState(new Set());
+    const [plansLoaded, setPlansLoaded] = useState(false);
     const [cursor, setCursor] = useState(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
@@ -322,6 +326,36 @@ export function SocialPosts() {
             .finally(() => {
                 if (active) setLoading(false);
             });
+        return () => {
+            active = false;
+        };
+    }, [selected?.id, tab, socialRevision]);
+    useEffect(() => {
+        if (tab !== 'page' || !selected) return;
+        let active = true;
+        setPlansLoaded(false);
+        (async () => {
+            const ids = new Set();
+            let offset = 0;
+            do {
+                const body = await socialRequest(
+                    `/api/publishing/plans?limit=100&offset=${offset}`
+                );
+                body.plans.forEach((plan) =>
+                    plan.deliveries?.forEach((delivery) => {
+                        if (delivery.account_id === selected.id && delivery.provider_post_id)
+                            ids.add(delivery.provider_post_id);
+                    })
+                );
+                offset = body.nextOffset ?? null;
+            } while (offset !== null);
+            if (active) {
+                setPlannedPostIds(ids);
+                setPlansLoaded(true);
+            }
+        })().catch(() => {
+            if (active) setPlansLoaded(false);
+        });
         return () => {
             active = false;
         };
@@ -368,6 +402,7 @@ export function SocialPosts() {
                     ? 'Đã xóa bài trên Facebook.'
                     : 'Đã cập nhật nội dung trên Facebook.'
             );
+            window.dispatchEvent(new Event('platform-posts-changed'));
             setAction(null);
         } catch (e) {
             setError(e.message);
@@ -393,6 +428,12 @@ export function SocialPosts() {
                         Lịch & kế hoạch
                     </button>
                     <button
+                        className={tab === 'approvals' ? 'active' : ''}
+                        onClick={() => setTab('approvals')}
+                    >
+                        Duyệt bài viết
+                    </button>
+                    <button
                         className={tab === 'page' ? 'active' : ''}
                         onClick={() => setTab('page')}
                     >
@@ -411,6 +452,8 @@ export function SocialPosts() {
             </div>
             {tab === 'planner' ? (
                 <PublishingCalendar />
+            ) : tab === 'approvals' ? (
+                <ApprovalBoard />
             ) : tab === 'local' ? (
                 <EntityPage kind="posts" />
             ) : (
@@ -555,6 +598,13 @@ export function SocialPosts() {
                                         </div>
                                         <Badge value="Đã đăng" />
                                     </div>
+                                    {plansLoaded && (
+                                        <small className="remote-post-origin">
+                                            {plannedPostIds.has(post.id)
+                                                ? 'Có trong lịch và quy trình duyệt'
+                                                : 'Không khớp ID bài trong kế hoạch duyệt'}
+                                        </small>
+                                    )}
                                     <p className="remote-post-message">
                                         {post.message || 'Bài viết không có nội dung văn bản.'}
                                     </p>
