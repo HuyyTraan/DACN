@@ -2,6 +2,7 @@ export const zones = { 'Asia/Ho_Chi_Minh': 7, 'Asia/Singapore': 8, UTC: 0 };
 export const characterLimits = {
     Facebook: 63206,
     Instagram: 2200,
+    Threads: 500,
     LinkedIn: 3000,
     X: 280,
     TikTok: 4000,

@@ -5,7 +5,17 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { withTemporaryPublicImage, cloudflaredAvailable } = require('./instagram-media-tunnel');
 
-const providers = ['Facebook', 'Instagram', 'Google', 'TikTok', 'YouTube', 'Zalo', 'LinkedIn', 'X'];
+const providers = [
+    'Facebook',
+    'Instagram',
+    'Threads',
+    'Google',
+    'TikTok',
+    'YouTube',
+    'Zalo',
+    'LinkedIn',
+    'X'
+];
 class SocialError extends Error {
     constructor(status, message) {
         super(message);
@@ -66,12 +76,12 @@ function mediaHostingAvailable(env) {
 function hmac(key, value, encoding) {
     return crypto.createHmac('sha256', key).update(value, 'utf8').digest(encoding);
 }
-async function putPublicMedia(env, http, image) {
+async function putPublicMedia(env, http, image, platform = 'Instagram') {
     if (!mediaStorageConfigured(env))
         throw new SocialError(503, 'Cần cấu hình kho media công khai Instagram trên BE/.env.');
     const endpoint = new URL(env.INSTAGRAM_MEDIA_ENDPOINT);
     const region = env.INSTAGRAM_MEDIA_REGION || 'auto';
-    const key = `instagram/${crypto.randomUUID()}.${image.extension}`;
+    const key = `${platform.toLowerCase()}/${crypto.randomUUID()}.${image.extension}`;
     const basePath = endpoint.pathname.replace(/\/$/, '');
     const objectPath = `${basePath}/${encodeURIComponent(env.INSTAGRAM_MEDIA_BUCKET)}/${key.split('/').map(encodeURIComponent).join('/')}`;
     const url = new URL(endpoint);
@@ -173,12 +183,29 @@ function createSocial({
     const redirectUri = () =>
         env.FACEBOOK_REDIRECT_URI ||
         `http://localhost:${env.PORT || 3000}/api/social/facebook/callback`;
+    const threadsRedirectUri = () => env.THREADS_REDIRECT_URI || '';
+    const validThreadsRedirectUri = () => {
+        try {
+            const uri = new URL(threadsRedirectUri());
+            return uri.protocol === 'https:' && !['localhost', '127.0.0.1'].includes(uri.hostname);
+        } catch {
+            return false;
+        }
+    };
     const configured = () =>
         Boolean(
             env.FACEBOOK_APP_ID &&
             env.FACEBOOK_APP_SECRET &&
             Buffer.from(env.SOCIAL_TOKEN_ENCRYPTION_KEY || '', 'base64').length === 32
         );
+    const threadsConfigured = () =>
+        Boolean(
+            env.THREADS_APP_ID &&
+            env.THREADS_APP_SECRET &&
+            validThreadsRedirectUri() &&
+            Buffer.from(env.SOCIAL_TOKEN_ENCRYPTION_KEY || '', 'base64').length === 32
+        );
+    const threadsGraph = () => 'https://graph.threads.net';
     const options = (token, params) => ({
         timeout: 15000,
         headers: { Authorization: `Bearer ${token}` },
@@ -203,6 +230,24 @@ function createSocial({
         return account;
     };
     const metadata = async (account) => {
+        if (account.platform === 'Threads') {
+            const response = await http.get(
+                `${threadsGraph()}/me`,
+                options(account.token, { fields: 'id,username,threads_profile_picture_url' })
+            );
+            if (response.data.id !== account.threadsUserId)
+                throw new SocialError(401, 'Token không thuộc tài khoản Threads đã liên kết.');
+            return {
+                id: account.id,
+                threadsUserId: account.threadsUserId,
+                platform: 'Threads',
+                name: response.data.username || account.name || `Threads ${account.threadsUserId}`,
+                avatar: response.data.threads_profile_picture_url || '',
+                source: account.source,
+                status: 'connected',
+                canPublish: true
+            };
+        }
         if (account.platform === 'Instagram') {
             const response = await http.get(
                 `${graph()}/${account.instagramUserId}`,
@@ -295,7 +340,9 @@ function createSocial({
         '/accounts',
         safe(async (req, res) => {
             const saved = credentials();
-            const pages = saved.filter((account) => account.platform !== 'Instagram');
+            const pages = saved.filter(
+                (account) => !['Instagram', 'Threads'].includes(account.platform)
+            );
             const accounts = [];
             for (const account of pages) {
                 try {
@@ -331,6 +378,7 @@ function createSocial({
                         .map((account) => [account.id, account])
                 ).values()
             ];
+            const threadsAccounts = saved.filter((account) => account.platform === 'Threads');
             for (const account of instagramAccounts) {
                 try {
                     accounts.push(await metadata(account));
@@ -349,13 +397,131 @@ function createSocial({
                     });
                 }
             }
+            for (const account of threadsAccounts) {
+                try {
+                    accounts.push(await metadata(account));
+                } catch (error) {
+                    accounts.push({
+                        id: account.id,
+                        threadsUserId: account.threadsUserId,
+                        name: account.name || `Threads ${account.threadsUserId}`,
+                        platform: 'Threads',
+                        avatar: '',
+                        canPublish: false,
+                        status: 'needs_reconnect',
+                        error: publicError(error).error,
+                        source: account.source
+                    });
+                }
+            }
             res.json({
                 accounts,
                 oauthConfigured: configured(),
-                providers: providers.map((name) => ({ name, supported: name === 'Facebook' }))
+                threadsOauthConfigured: threadsConfigured(),
+                providers: providers.map((name) => ({
+                    name,
+                    supported: name === 'Facebook' || name === 'Threads'
+                }))
             });
         })
     );
+    router.get(
+        '/threads/connect',
+        safe(async (req, res) => {
+            if (req.actor?.role === 'editor' || req.actor?.role === 'viewer')
+                throw new SocialError(403, 'Chỉ Admin/Manager được liên kết tài khoản Threads.');
+            if (!threadsConfigured())
+                throw new SocialError(
+                    503,
+                    'Cấu hình Threads App ID/Secret, SOCIAL_TOKEN_ENCRYPTION_KEY và callback HTTPS không dùng localhost trên backend trước.'
+                );
+            for (const [key, session] of sessions)
+                if (session.expires < Date.now()) sessions.delete(key);
+            if (sessions.size >= 100)
+                throw new SocialError(429, 'Quá nhiều phiên liên kết. Thử lại sau.');
+            const state = crypto.randomBytes(32).toString('hex');
+            sessions.set(state, { expires: Date.now() + 10 * 60000, provider: 'Threads' });
+            res.cookie('omni_threads', state, {
+                httpOnly: true,
+                sameSite: 'lax',
+                secure: threadsRedirectUri().startsWith('https:'),
+                maxAge: 10 * 60000,
+                path: '/api/social/threads'
+            });
+            const query = new URLSearchParams({
+                client_id: env.THREADS_APP_ID,
+                redirect_uri: threadsRedirectUri(),
+                scope: 'threads_basic,threads_content_publish',
+                response_type: 'code',
+                state
+            });
+            res.redirect(`https://threads.net/oauth/authorize?${query}`);
+        })
+    );
+    router.get('/threads/callback', async (req, res) => {
+        try {
+            const cookie = /(?:^|;\s*)omni_threads=([a-f0-9]{64})(?:;|$)/.exec(
+                req.get('Cookie') || ''
+            )?.[1];
+            const session = cookie && sessions.get(cookie);
+            if (
+                !session ||
+                session.provider !== 'Threads' ||
+                session.expires < Date.now() ||
+                req.query.state !== cookie ||
+                session.used
+            )
+                throw new SocialError(400, 'State OAuth Threads không hợp lệ hoặc đã hết hạn.');
+            session.used = true;
+            if (req.query.error || typeof req.query.code !== 'string')
+                throw new SocialError(400, 'Bạn đã hủy hoặc Threads chưa cấp quyền liên kết.');
+            const short = await http.post(`${threadsGraph()}/oauth/access_token`, null, {
+                timeout: 15000,
+                params: {
+                    client_id: env.THREADS_APP_ID,
+                    client_secret: env.THREADS_APP_SECRET,
+                    code: req.query.code,
+                    grant_type: 'authorization_code',
+                    redirect_uri: threadsRedirectUri()
+                }
+            });
+            const long = await http.get(`${threadsGraph()}/access_token`, {
+                timeout: 15000,
+                params: {
+                    grant_type: 'th_exchange_token',
+                    client_secret: env.THREADS_APP_SECRET,
+                    access_token: short.data.access_token
+                }
+            });
+            const token = long.data.access_token || short.data.access_token;
+            const profile = await http.get(
+                `${threadsGraph()}/me`,
+                options(token, { fields: 'id,username' })
+            );
+            if (!/^\d+$/.test(String(profile.data.id || '')))
+                throw new SocialError(502, 'Threads không trả về danh tính tài khoản hợp lệ.');
+            const account = {
+                id: `threads:${profile.data.id}`,
+                platform: 'Threads',
+                threadsUserId: String(profile.data.id),
+                token,
+                name: profile.data.username || `Threads ${profile.data.id}`,
+                expiresAt: long.data.expires_in
+                    ? Date.now() + long.data.expires_in * 1000
+                    : undefined
+            };
+            const saved = new Map(vault.read().map((item) => [item.id, item]));
+            saved.set(account.id, account);
+            vault.write([...saved.values()]);
+            sessions.delete(cookie);
+            res.clearCookie('omni_threads', { path: '/api/social/threads' });
+            res.redirect(`${uiOrigin()}/#connections`);
+        } catch (error) {
+            res.redirect(
+                `${uiOrigin()}/?social_error=${encodeURIComponent(publicError(error).error)}#connections`
+            );
+        }
+    });
     router.get(
         '/facebook/connect',
         safe(async (req, res) => {
@@ -657,6 +823,8 @@ function createSocial({
             throw new SocialError(503, 'Chưa cấu hình tài khoản Facebook trên máy chủ');
         const account = credential(body.accountId || `facebook:${env.PAGE_ID}`);
         const platform = account.platform || 'Facebook';
+        if (platform === 'Threads' && text.length > 500)
+            throw new SocialError(400, 'Nội dung Threads vượt giới hạn 500 ký tự.');
         if (platform === 'Instagram' && text.length > 2200)
             throw new SocialError(400, 'Chú thích Instagram vượt giới hạn 2.200 ký tự.');
         if (platform === 'Instagram' && !mediaHostingAvailable(env))
@@ -668,6 +836,13 @@ function createSocial({
             throw new SocialError(400, 'Bài Instagram cần đính kèm ảnh JPG.');
         if (account.platform === 'Instagram' && image.mime !== 'image/jpeg')
             throw new SocialError(400, 'Instagram hiện chỉ nhận ảnh JPG.');
+        if (platform === 'Threads' && image && image.mime !== 'image/jpeg')
+            throw new SocialError(400, 'Threads hiện chỉ nhận ảnh JPG qua chức năng đăng này.');
+        if (platform === 'Threads' && image && !mediaHostingAvailable(env))
+            throw new SocialError(
+                503,
+                'Cần cloudflared hoặc kho media công khai để đăng ảnh Threads.'
+            );
         const requestId = body.requestId;
         if (requestId && (typeof requestId !== 'string' || !/^[a-f0-9-]{36}$/i.test(requestId)))
             throw new SocialError(400, 'Request ID không hợp lệ.');
@@ -692,7 +867,36 @@ function createSocial({
         }
         let response;
         let postId;
-        if (platform === 'Instagram') {
+        if (platform === 'Threads') {
+            const createAndPublish = async (params) => {
+                const container = await http.post(
+                    `${threadsGraph()}/${account.threadsUserId}/threads`,
+                    null,
+                    options(account.token, params)
+                );
+                if (!container.data.id)
+                    throw new SocialError(502, 'Threads không tạo được bài viết.');
+                response = await http.post(
+                    `${threadsGraph()}/${account.threadsUserId}/threads_publish`,
+                    null,
+                    options(account.token, { creation_id: container.data.id })
+                );
+                postId = response.data.id;
+            };
+            if (image) {
+                const publishImage = (imageUrl) =>
+                    createAndPublish({
+                        media_type: 'IMAGE',
+                        image_url: imageUrl,
+                        ...(text ? { text } : {})
+                    });
+                if (mediaStorageConfigured(env))
+                    await publishImage(await putPublicMedia(env, http, image, 'Threads'));
+                else await temporaryMedia(image, publishImage);
+            } else {
+                await createAndPublish({ media_type: 'TEXT', text });
+            }
+        } else if (platform === 'Instagram') {
             const publishFromUrl = async (imageUrl) => {
                 const container = await http.post(
                     `${graph()}/${account.instagramUserId}/media`,
@@ -753,15 +957,23 @@ function createSocial({
         const result = {
             success: true,
             message:
-                platform === 'Instagram'
-                    ? 'Đã đăng lên Instagram thành công!'
-                    : 'Đã đăng lên Fanpage thành công!',
+                platform === 'Threads'
+                    ? 'Đã đăng lên Threads thành công!'
+                    : platform === 'Instagram'
+                      ? 'Đã đăng lên Instagram thành công!'
+                      : 'Đã đăng lên Fanpage thành công!',
             providerPostId: postId || response.data.id,
             platform,
             ...(platform === 'Facebook' ? { facebookPostId: postId || response.data.id } : {}),
             accountId: account.id,
             permalink:
-                platform === 'Instagram' ? '' : postId ? `https://www.facebook.com/${postId}` : ''
+                platform === 'Threads'
+                    ? response.data.permalink || ''
+                    : platform === 'Instagram'
+                      ? ''
+                      : postId
+                        ? `https://www.facebook.com/${postId}`
+                        : ''
         };
         if (requestId) requests.get(requestId).result = result;
         return result;

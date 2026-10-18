@@ -10,7 +10,8 @@
         'YouTube',
         'Zalo',
         'LinkedIn',
-        'X'
+        'X',
+        'Threads'
     ];
     const accountNames = [
         'Linh Nguyễn',
@@ -513,6 +514,7 @@
         const limits = {
             Facebook: 63206,
             Instagram: 2200,
+            Threads: 500,
             TikTok: 4000,
             YouTube: 5000,
             Zalo: 2000,

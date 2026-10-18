@@ -24,6 +24,7 @@ export const dateLabel = (value) =>
 const colors = {
     Facebook: '#1877f2',
     Instagram: '#d95a8c',
+    Threads: '#101010',
     Google: '#4285f4',
     TikTok: '#242834',
     YouTube: '#ed5757',
@@ -38,6 +39,7 @@ export function Platform({ name, small = false }) {
             <span className="platform-mark">
                 {{
                     Facebook: 'f',
+                    Threads: '@',
                     Instagram: '◎',
                     Google: 'G',
                     TikTok: '♪',

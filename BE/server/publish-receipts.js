@@ -51,7 +51,11 @@ async function publishDurably(pool, social, body, actor) {
         "UPDATE studio_publish_requests SET status='published',result=$2::jsonb,updated_at=now() WHERE id=$1",
         [id, JSON.stringify(safePayload(result))]
     );
-    const platform = body.accountId?.startsWith('instagram:') ? 'instagram' : 'facebook';
+    const platform = body.accountId?.startsWith('threads:')
+        ? 'threads'
+        : body.accountId?.startsWith('instagram:')
+          ? 'instagram'
+          : 'facebook';
     await audit(pool, actor, 'publish', platform, id, null, result);
     return result;
 }
