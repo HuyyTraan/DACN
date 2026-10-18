@@ -113,7 +113,10 @@ export function Connections() {
                                         <strong>{account.name}</strong>
                                         <small>
                                             <Platform name={account.platform} /> · ID{' '}
-                                            {account.instagramUserId || account.pageId}
+                                            {account.threadsUserId ||
+                                                account.instagramUserId ||
+                                                account.pageId ||
+                                                account.id}
                                         </small>
                                         {account.platform === 'Instagram' && account.pageId && (
                                             <small>
@@ -154,15 +157,16 @@ export function Connections() {
                                     </Button>
                                     <Button
                                         disabled={
-                                            !account.canPublish || account.platform === 'Instagram'
+                                            !account.canPublish ||
+                                            ['Instagram', 'Threads'].includes(account.platform)
                                         }
                                         onClick={() => {
                                             selectSocialAccount(account.id);
                                             navigate('posts');
                                         }}
                                     >
-                                        {account.platform === 'Instagram'
-                                            ? 'Đọc bài Instagram chưa hỗ trợ'
+                                        {['Instagram', 'Threads'].includes(account.platform)
+                                            ? `Đọc bài ${account.platform} chưa hỗ trợ`
                                             : 'Xem bài trên Page'}
                                     </Button>
                                     {account.source === 'oauth' && (
@@ -245,13 +249,25 @@ export function Connections() {
                             <p>
                                 {provider.name === 'Instagram'
                                     ? 'Tài khoản Professional liên kết với Page có thể được phát hiện. Đăng local dùng Cloudflare Tunnel tạm; triển khai cần kho media công khai.'
-                                    : provider.supported
-                                      ? 'Liên kết Page, xem/sửa/xóa bài đã đăng và đăng văn bản kèm ảnh.'
-                                      : 'Chưa triển khai adapter/API cho nền tảng này. Tài khoản sẽ không xuất hiện trong trình soạn.'}
+                                    : provider.name === 'Threads'
+                                      ? 'Liên kết tài khoản Threads bằng OAuth. Hỗ trợ đăng chữ tối đa 500 ký tự và ảnh JPG; đăng ảnh cần URL media công khai tạm hoặc bucket.'
+                                      : provider.supported
+                                        ? 'Liên kết Page, xem/sửa/xóa bài đã đăng và đăng văn bản kèm ảnh.'
+                                        : 'Chưa triển khai adapter/API cho nền tảng này. Tài khoản sẽ không xuất hiện trong trình soạn.'}
                             </p>
-                            {provider.supported && social.oauthConfigured ? (
-                                <a className="button primary" href="/api/social/facebook/connect">
-                                    <Link2 size={16} /> Liên kết Facebook
+                            {provider.supported &&
+                            (provider.name === 'Threads'
+                                ? social.threadsOauthConfigured
+                                : social.oauthConfigured) ? (
+                                <a
+                                    className="button primary"
+                                    href={
+                                        provider.name === 'Threads'
+                                            ? '/api/social/threads/connect'
+                                            : '/api/social/facebook/connect'
+                                    }
+                                >
+                                    <Link2 size={16} /> Liên kết {provider.name}
                                 </a>
                             ) : (
                                 <Button disabled>

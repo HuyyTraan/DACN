@@ -468,6 +468,26 @@
                 ]
             }
         },
+        "/api/social/threads/connect": {
+            "get": {
+                "summary": "Bắt đầu Threads OAuth với state và cookie HttpOnly",
+                "responses": {
+                    "302": { "description": "Chuyển tới trang cấp quyền Threads chính thức" },
+                    "401": { "description": "Cần đăng nhập" },
+                    "403": { "description": "Chỉ Admin/Manager được liên kết tài khoản" },
+                    "503": { "description": "Thiếu Threads App ID/Secret hoặc khóa mã hóa" }
+                },
+                "security": [{ "cookieAuth": [] }]
+            }
+        },
+        "/api/social/threads/callback": {
+            "get": {
+                "summary": "Callback Threads OAuth đã đăng ký; xác minh state, lưu token mã hóa và chuyển về giao diện",
+                "responses": {
+                    "302": { "description": "Trở về giao diện hoặc thông báo lỗi an toàn" }
+                }
+            }
+        },
         "/api/social/facebook/connect": {
             "get": {
                 "summary": "Bắt đầu Facebook Login với state và cookie HttpOnly",

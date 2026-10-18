@@ -200,6 +200,148 @@ test('Instagram image publishing uploads to configured S3-compatible storage the
     assert.ok(f.calls.find((call) => call.url.endsWith('/777/media_publish')));
     assert.ok(!JSON.stringify(result).includes('fake-secret'));
 });
+test('Threads text publishing creates a container and publishes it; account secrets stay private', async () => {
+    const f = setup({
+        THREADS_APP_ID: 'threads-app',
+        THREADS_APP_SECRET: 'threads-secret',
+        THREADS_REDIRECT_URI: 'https://studio.example.test/api/social/threads/callback'
+    });
+    f.vault.write([
+        {
+            id: 'threads:555',
+            platform: 'Threads',
+            threadsUserId: '555',
+            token: 'threads-private-token',
+            name: 'test.user'
+        }
+    ]);
+    f.http.get = async (url, options) => {
+        f.calls.push({ method: 'GET', url, options });
+        if (url.endsWith('/me'))
+            return { data: { id: '555', username: 'test.user', threads_profile_picture_url: '' } };
+        return { data: { id: '123', name: 'ITM' } };
+    };
+    f.http.post = async (url, body, options) => {
+        f.calls.push({ method: 'POST', url, body, options });
+        return {
+            data: { id: url.endsWith('/threads_publish') ? 'thread-post-1' : 'thread-container-1' }
+        };
+    };
+    const result = await f.service.publish({
+        accountId: 'threads:555',
+        noiDungBaiViet: 'Bài Threads mock',
+        requestId: crypto.randomUUID()
+    });
+    assert.equal(result.platform, 'Threads');
+    assert.equal(result.providerPostId, 'thread-post-1');
+    assert.equal(result.permalink, '');
+    const calls = f.calls.filter((call) => call.method === 'POST');
+    assert.equal(calls.length, 2);
+    assert.match(calls[0].url, /graph\.threads\.net\/555\/threads$/);
+    assert.deepEqual(calls[0].options.params, { media_type: 'TEXT', text: 'Bài Threads mock' });
+    assert.match(calls[1].url, /graph\.threads\.net\/555\/threads_publish$/);
+    assert.deepEqual(calls[1].options.params, { creation_id: 'thread-container-1' });
+    assert.ok(!JSON.stringify(result).includes('threads-private-token'));
+    await assert.rejects(
+        f.service.publish({ accountId: 'threads:555', noiDungBaiViet: 'x'.repeat(501) }),
+        (error) => error.status === 400
+    );
+});
+test('Threads account identity and supported OAuth state are returned without credentials', async () => {
+    const f = setup({
+        THREADS_APP_ID: 'threads-app',
+        THREADS_APP_SECRET: 'threads-secret',
+        THREADS_REDIRECT_URI: 'https://studio.example.test/api/social/threads/callback'
+    });
+    f.vault.write([
+        { id: 'threads:555', platform: 'Threads', threadsUserId: '555', token: 'private-token' }
+    ]);
+    f.http.get = async (url, options) => {
+        f.calls.push({ method: 'GET', url, options });
+        if (url.endsWith('/me'))
+            return { data: { id: '555', username: 'test.user', threads_profile_picture_url: '' } };
+        return { data: { id: '123', name: 'ITM' } };
+    };
+    await withApi(f.service, async (base) => {
+        const body = await (await fetch(base + '/api/social/accounts')).json();
+        assert.equal(body.threadsOauthConfigured, true);
+        assert.equal(
+            body.accounts.find((account) => account.platform === 'Threads').name,
+            'test.user'
+        );
+        assert.ok(!JSON.stringify(body).includes('private-token'));
+        const start = await fetch(base + '/api/social/threads/connect', { redirect: 'manual' });
+        assert.equal(start.status, 302);
+        const authorization = new URL(start.headers.get('location'));
+        assert.equal(authorization.origin, 'https://threads.net');
+        assert.match(authorization.searchParams.get('scope'), /threads_basic/);
+        assert.match(authorization.searchParams.get('scope'), /threads_content_publish/);
+    });
+});
+test('Threads image publish uses one temporary public URL and the two-step API flow', async () => {
+    const f = setup({
+        INSTAGRAM_MEDIA_ENDPOINT: 'https://storage.example.test',
+        INSTAGRAM_MEDIA_BUCKET: 'public-media',
+        INSTAGRAM_MEDIA_ACCESS_KEY: 'fake-access',
+        INSTAGRAM_MEDIA_SECRET_KEY: 'fake-secret',
+        INSTAGRAM_MEDIA_PUBLIC_ORIGIN: 'https://cdn.example.test'
+    });
+    f.vault.write([
+        { id: 'threads:555', platform: 'Threads', threadsUserId: '555', token: 'private-token' }
+    ]);
+    f.http.post = async (url, body, options) => {
+        f.calls.push({ method: 'POST', url, body, options });
+        return {
+            data: {
+                id: url.endsWith('/threads_publish') ? 'thread-image-1' : 'thread-image-container'
+            }
+        };
+    };
+    const result = await f.service.publish({
+        accountId: 'threads:555',
+        noiDungBaiViet: 'Ảnh Threads mock',
+        image: 'data:image/jpeg;base64,' + Buffer.from([255, 216, 255, 1]).toString('base64')
+    });
+    assert.equal(result.providerPostId, 'thread-image-1');
+    const upload = f.calls.find((call) => call.method === 'PUT');
+    assert.match(upload.url, /\/threads\//);
+    const creation = f.calls.find((call) => call.url.endsWith('/555/threads'));
+    assert.equal(creation.options.params.media_type, 'IMAGE');
+    assert.match(creation.options.params.image_url, /^https:\/\/cdn\.example\.test\/threads\//);
+    assert.equal(creation.options.params.text, 'Ảnh Threads mock');
+});
+test('Threads OAuth callback stores only an encrypted-vault account after valid state', async () => {
+    const f = setup({
+        THREADS_APP_ID: 'threads-app',
+        THREADS_APP_SECRET: 'threads-secret',
+        THREADS_REDIRECT_URI: 'https://studio.example.test/api/social/threads/callback'
+    });
+    f.http.post = async (url, body, options) => {
+        f.calls.push({ method: 'POST', url, body, options });
+        return { data: { access_token: 'short-lived-token' } };
+    };
+    f.http.get = async (url, options) => {
+        f.calls.push({ method: 'GET', url, options });
+        if (url.endsWith('/access_token'))
+            return { data: { access_token: 'long-lived-token', expires_in: 5184000 } };
+        if (url.endsWith('/me')) return { data: { id: '555', username: 'test.user' } };
+        return { data: { id: '123', name: 'ITM' } };
+    };
+    await withApi(f.service, async (base) => {
+        const start = await fetch(base + '/api/social/threads/connect', { redirect: 'manual' });
+        const cookie = start.headers.get('set-cookie').split(';')[0];
+        const state = new URL(start.headers.get('location')).searchParams.get('state');
+        const callback = await fetch(
+            base + `/api/social/threads/callback?state=${state}&code=oauth-code`,
+            { headers: { Cookie: cookie }, redirect: 'manual' }
+        );
+        assert.equal(callback.status, 302);
+        assert.equal(f.vault.read()[0].id, 'threads:555');
+        assert.equal(f.vault.read()[0].token, 'long-lived-token');
+        assert.equal(f.vault.read()[0].expiresAt > Date.now(), true);
+        assert.ok(!JSON.stringify(f.vault.read()).includes('threads-secret'));
+    });
+});
 test('temporary Instagram media tunnel exposes only the one-time image path and closes it after publishing', async () => {
     const { EventEmitter } = require('node:events');
     const { PassThrough } = require('node:stream');

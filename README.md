@@ -264,6 +264,12 @@ API cũ POST /api/publish/facebook nhận:
 
 Cần PAGE_ID và PAGE_ACCESS_TOKEN trên server cho Facebook. Trong trình soạn bài chọn tài khoản đã xác minh, rồi **Đăng ngay** và xác nhận. Facebook nhận văn bản và ảnh tùy chọn JPG/PNG/WebP/GIF tối đa 1 MB. Instagram yêu cầu JPG tối đa 1 MB và tài khoản Professional đã liên kết. Khi phát triển local, cài `cloudflared` (`winget install --id Cloudflare.cloudflared --exact`) để backend mở Cloudflare Quick Tunnel tạm thời chỉ cho một URL ảnh ngẫu nhiên; không cần bucket hay tài khoản Cloudflare. Meta tải ảnh từ URL này trong lúc backend tạo media container, chờ `FINISHED`, rồi gọi `media_publish`; tunnel và endpoint ảnh đóng sau yêu cầu. Quick Tunnel chỉ dành cho phát triển/thử nghiệm; URL công khai tạm thời trong lúc đăng và ai biết URL có thể tải ảnh. Để triển khai ổn định, dùng bucket S3-compatible công khai cấu hình bằng sáu biến `INSTAGRAM_MEDIA_*`; có thể đặt `INSTAGRAM_MEDIA_TUNNEL_ENABLED=false` để tắt tunnel. Không gửi bình luận/lịch worker Instagram. Lỗi provider/timeout trả 502; token hết hạn 401; thiếu quyền 403. Không tự retry khi chưa rõ Instagram đã đăng hay chưa. Test tự động dùng mock; không đăng bài thật.
 
+## Đăng bài Threads
+
+Threads dùng OAuth riêng của Threads App. Meta không chấp nhận `localhost` cho redirect OAuth Threads và yêu cầu HTTPS; dùng Quick Tunnel HTTPS trỏ vào Vite. Chạy `npm run dev` trước, rồi terminal thứ ba chạy `cloudflared tunnel --url http://localhost:5173`; lấy hostname `https://...trycloudflare.com` hiện ra. Dừng Vite rồi mở lại trong PowerShell với `$env:THREADS_DEV_HOST='...trycloudflare.com'; npm run dev` (chỉ hostname, không có `https://`). Điền `SOCIAL_UI_ORIGIN` bằng origin tunnel và `THREADS_REDIRECT_URI` bằng `<origin tunnel>/api/social/threads/callback` trong `BE/.env`; thêm chính xác callback đó vào Threads App Dashboard. Điền Threads App ID/Secret riêng, bật Threads use case cùng quyền `threads_basic` và `threads_content_publish`, rồi khởi động lại API. Giữ cả Vite và tunnel chạy, sau đó mở Omni Studio bằng URL tunnel để đăng nhập và liên kết. Khóa `SOCIAL_TOKEN_ENCRYPTION_KEY` hiện có dùng chung để mã hóa token trong vault backend.
+
+Sau khi liên kết tài khoản ở **Liên kết tài khoản**, Composer cho đăng văn bản tối đa 500 ký tự hoặc một ảnh JPG tối đa 1 MB. Đăng chữ không cần dịch vụ media; đăng ảnh dùng Quick Tunnel nếu đã cài `cloudflared`, hoặc bucket công khai cấu hình qua các biến `INSTAGRAM_MEDIA_*`. Callback đổi token thành long-lived token và lưu danh tính/token trong `BE/.data/social-tokens.enc`. Lịch, gửi duyệt, đọc/sửa/xóa bài Threads chưa được hỗ trợ. Test OAuth và publish chỉ dùng mock, không gửi bài thật.
+
 ## Kiểm tra
 
 ```powershell
@@ -299,7 +305,10 @@ Trong **Quản lý bài viết → Bài trên nền tảng**, chọn Page để 
 FACEBOOK_APP_ID=APP_ID_CUA_BAN
 FACEBOOK_APP_SECRET=APP_SECRET_CUA_BAN
 FACEBOOK_REDIRECT_URI=http://localhost:3000/api/social/facebook/callback
-SOCIAL_UI_ORIGIN=http://localhost:5173
+THREADS_APP_ID=
+THREADS_APP_SECRET=
+THREADS_REDIRECT_URI=https://<quick-tunnel-host>/api/social/threads/callback
+SOCIAL_UI_ORIGIN=https://<quick-tunnel-host>
 SOCIAL_TOKEN_ENCRYPTION_KEY=KHOA_32_BYTE_BASE64
 GRAPH_API_VERSION=v21.0
 ```

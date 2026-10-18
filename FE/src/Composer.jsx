@@ -184,10 +184,10 @@ export default function Composer({ post, onClose }) {
         event.target.value = '';
         if (!file) return;
         if (
-            selected.some((account) => account.platform === 'Instagram') &&
+            selected.some((account) => ['Instagram', 'Threads'].includes(account.platform)) &&
             file.type !== 'image/jpeg'
         ) {
-            setError('Instagram hiện chỉ nhận ảnh JPG.');
+            setError('Instagram và Threads hiện chỉ nhận ảnh JPG.');
             return;
         }
         if (
@@ -263,10 +263,10 @@ export default function Composer({ post, onClose }) {
         if (server.ready) {
             if (
                 status !== 'Bản nháp' &&
-                selected.some((account) => account.platform === 'Instagram')
+                selected.some((account) => ['Instagram', 'Threads'].includes(account.platform))
             ) {
                 setError(
-                    'Lịch đăng và gửi duyệt Instagram chưa được hỗ trợ; chỉ có thể đăng ảnh ngay.'
+                    'Lịch đăng và gửi duyệt Instagram/Threads chưa được hỗ trợ; chỉ có thể đăng ngay.'
                 );
                 return;
             }
@@ -358,9 +358,11 @@ export default function Composer({ post, onClose }) {
         if (!normalized) return;
         if (
             !selected.length ||
-            selected.some((a) => !['Facebook', 'Instagram'].includes(a.platform))
+            selected.some((a) => !['Facebook', 'Instagram', 'Threads'].includes(a.platform))
         ) {
-            setError('Chỉ tài khoản Facebook hoặc Instagram đã xác minh mới có thể đăng ngay.');
+            setError(
+                'Chỉ tài khoản Facebook, Instagram hoặc Threads đã xác minh mới có thể đăng ngay.'
+            );
             return;
         }
         if (activeFollowups(form.comments).length) {
@@ -852,7 +854,7 @@ export default function Composer({ post, onClose }) {
                             <strong>
                                 {form.serverPlanId
                                     ? `Đăng bài đã duyệt ngay lên ${approvedTarget?.name || 'Page đã chọn'}?`
-                                    : `Đăng bài chính ngay lên ${selected.length} Page?`}
+                                    : `Đăng bài chính ngay lên ${selected.length} tài khoản?`}
                             </strong>
                             <p>
                                 {form.serverPlanId
@@ -969,8 +971,9 @@ export default function Composer({ post, onClose }) {
                     ))}
                     <p className="preview-disclaimer">
                         Preview minh họa bố cục; giới hạn API và cách định dạng phụ thuộc nền tảng.
-                        Facebook và Instagram hỗ trợ đăng ngay; Instagram cần ảnh JPG và media
-                        hosting khả dụng. Lịch worker hiện chỉ hỗ trợ Facebook.
+                        Facebook, Instagram và Threads hỗ trợ đăng ngay; Instagram/Threads cần ảnh
+                        JPG và media hosting khả dụng khi đính kèm ảnh. Lịch worker hiện chỉ hỗ trợ
+                        Facebook.
                     </p>
                 </aside>
             </div>

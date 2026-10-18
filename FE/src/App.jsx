@@ -210,8 +210,12 @@ export default function App({ user, onLogout }) {
     const [saving, setSaving] = useState(false);
     const [social, setSocial] = useState({
         accounts: [],
-        providers: window.Omni.platforms.map((name) => ({ name, supported: name === 'Facebook' })),
-        oauthConfigured: false
+        providers: window.Omni.platforms.map((name) => ({
+            name,
+            supported: ['Facebook', 'Threads'].includes(name)
+        })),
+        oauthConfigured: false,
+        threadsOauthConfigured: false
     });
     const [socialLoading, setSocialLoading] = useState(true);
     const [socialError, setSocialError] = useState('');

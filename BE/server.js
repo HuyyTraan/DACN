@@ -40,7 +40,7 @@ function createApp({ authentication = true, pool = null, socialService = null } 
                 ['/health', '/docs', '/openapi.json', '/postman'].some(
                     (p) => req.path === p || req.path.startsWith(p + '/')
                 ) ||
-                req.path === '/social/facebook/callback'
+                ['/social/facebook/callback', '/social/threads/callback'].includes(req.path)
             )
                 return next();
             auth.middleware(req, res, () => {
