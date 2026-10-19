@@ -459,32 +459,40 @@ function createSocial({
         })
     );
     router.get('/threads/callback', async (req, res) => {
+        let step = 'validate_state';
+        let stateFailureReason = null;
         try {
             const cookie = /(?:^|;\s*)omni_threads=([a-f0-9]{64})(?:;|$)/.exec(
                 req.get('Cookie') || ''
             )?.[1];
             const session = cookie && sessions.get(cookie);
-            if (
-                !session ||
-                session.provider !== 'Threads' ||
-                session.expires < Date.now() ||
-                req.query.state !== cookie ||
-                session.used
-            )
+            if (!cookie) stateFailureReason = 'cookie_missing';
+            else if (!session) stateFailureReason = 'session_missing';
+            else if (session.provider !== 'Threads') stateFailureReason = 'provider_mismatch';
+            else if (session.expires < Date.now()) stateFailureReason = 'session_expired';
+            else if (req.query.state !== cookie) stateFailureReason = 'state_mismatch';
+            else if (session.used) stateFailureReason = 'session_already_used';
+            if (stateFailureReason)
                 throw new SocialError(400, 'State OAuth Threads không hợp lệ hoặc đã hết hạn.');
             session.used = true;
             if (req.query.error || typeof req.query.code !== 'string')
                 throw new SocialError(400, 'Bạn đã hủy hoặc Threads chưa cấp quyền liên kết.');
-            const short = await http.post(`${threadsGraph()}/oauth/access_token`, null, {
-                timeout: 15000,
-                params: {
+            step = 'exchange_code';
+            const short = await http.post(
+                `${threadsGraph()}/oauth/access_token`,
+                new URLSearchParams({
                     client_id: env.THREADS_APP_ID,
                     client_secret: env.THREADS_APP_SECRET,
                     code: req.query.code,
                     grant_type: 'authorization_code',
                     redirect_uri: threadsRedirectUri()
+                }).toString(),
+                {
+                    timeout: 15000,
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
                 }
-            });
+            );
+            step = 'exchange_long_lived_token';
             const long = await http.get(`${threadsGraph()}/access_token`, {
                 timeout: 15000,
                 params: {
@@ -494,6 +502,7 @@ function createSocial({
                 }
             });
             const token = long.data.access_token || short.data.access_token;
+            step = 'fetch_profile';
             const profile = await http.get(
                 `${threadsGraph()}/me`,
                 options(token, { fields: 'id,username' })
@@ -510,6 +519,7 @@ function createSocial({
                     ? Date.now() + long.data.expires_in * 1000
                     : undefined
             };
+            step = 'persist_token';
             const saved = new Map(vault.read().map((item) => [item.id, item]));
             saved.set(account.id, account);
             vault.write([...saved.values()]);
@@ -517,6 +527,19 @@ function createSocial({
             res.clearCookie('omni_threads', { path: '/api/social/threads' });
             res.redirect(`${uiOrigin()}/#connections`);
         } catch (error) {
+            const providerError = error.response?.data?.error;
+            console.error('Threads OAuth callback failed', {
+                step,
+                stateFailureReason,
+                httpStatus: Number.isInteger(error.response?.status) ? error.response.status : null,
+                providerCode: Number.isInteger(providerError?.code) ? providerError.code : null,
+                providerSubcode: Number.isInteger(providerError?.error_subcode)
+                    ? providerError.error_subcode
+                    : null,
+                providerType: typeof providerError?.type === 'string' ? providerError.type : null,
+                networkCode: typeof error.code === 'string' ? error.code : null,
+                errorName: typeof error.name === 'string' ? error.name : null
+            });
             res.redirect(
                 `${uiOrigin()}/?social_error=${encodeURIComponent(publicError(error).error)}#connections`
             );
