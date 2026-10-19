@@ -11,8 +11,14 @@ const { resourceRouter } = require('./server/resources');
 const { audit } = require('./server/data-store');
 const { publishDurably } = require('./server/publish-receipts');
 const { automationRouter } = require('./server/automation');
+const { aiAnalysisRouter } = require('./server/ai-analysis');
 
-function createApp({ authentication = true, pool = null, socialService = null } = {}) {
+function createApp({
+    authentication = true,
+    pool = null,
+    socialService = null,
+    aiProvider = null
+} = {}) {
     const app = express();
     app.disable('x-powered-by');
     app.use((req, res, next) => {
@@ -121,6 +127,10 @@ function createApp({ authentication = true, pool = null, socialService = null } 
         });
     app.use('/api/social', social.router);
     app.use('/api/automation', automationRouter(auth.pool));
+    app.use(
+        '/api/ai',
+        aiAnalysisRouter(auth.pool, aiProvider ? { provider: aiProvider } : undefined)
+    );
     app.use(
         '/api/publishing',
         pool

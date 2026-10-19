@@ -280,290 +280,6 @@ const columns = {
         statusColumn
     ]
 };
-export function Dashboard() {
-    const { data, period, platform, navigate, compose, view, user } = useWorkspace();
-    const active = data.campaigns.filter((c) => c.status === 'Đang chạy');
-    const ratio = 1;
-    const reach = data.campaigns.reduce((sum, c) => sum + c.reach, 0) * ratio;
-    const spent = data.campaigns.reduce((sum, c) => sum + c.spent, 0) * ratio;
-    const leads = Math.round(data.campaigns.reduce((sum, c) => sum + c.leads, 0) * ratio);
-    return (
-        <>
-            <div className="welcome-strip">
-                <div>
-                    <span className="welcome-label">
-                        <span className="sun-symbol">✳</span> CHÀO {user.name}, NGÀY MỚI TỐT LÀNH
-                    </span>
-                    <h2>
-                        Những kết nối nhỏ.
-                        <br />
-                        <span>Tạo nên tác động lớn.</span>
-                    </h2>
-                    <p>
-                        Bạn có {active.length} chiến dịch đang chạy và{' '}
-                        {data.posts.filter((p) => p.status === 'Chờ duyệt').length} bài viết cần
-                        duyệt.
-                    </p>
-                    <button className="text-link" onClick={() => navigate('campaigns')}>
-                        Khám phá chiến dịch <ArrowRight size={16} />
-                    </button>
-                </div>
-                <div className="welcome-art" aria-hidden="true">
-                    <div className="art-orbit orbit-one" />
-                    <div className="art-orbit orbit-two" />
-                    <div className="art-note">
-                        <span>✦</span>
-                        <strong>
-                            Make
-                            <br />
-                            connections.
-                        </strong>
-                        <small>OMNI STUDIO / OCTOBER</small>
-                    </div>
-                    <div className="art-stamp">
-                        stay
-                        <br />
-                        creative ↗
-                    </div>
-                </div>
-            </div>
-            <div className="metrics">
-                <Metric label="Tổng lượt tiếp cận" value={compact(reach)} delta="" icon={Eye} />
-                <Metric
-                    label="Tương tác nội dung"
-                    value={number(
-                        Math.round(data.posts.reduce((s, p) => s + p.engagement, 0) * ratio)
-                    )}
-                    delta=""
-                    icon={Heart}
-                    tone="rose"
-                />
-                <Metric
-                    label="Khách hàng tiềm năng"
-                    value={number(leads)}
-                    delta=""
-                    icon={Users}
-                    tone="mint"
-                />
-                <Metric
-                    label="Ngân sách đã chi"
-                    value={compact(spent) + ' ₫'}
-                    delta=""
-                    icon={Wallet}
-                    tone="sand"
-                    note="so với kế hoạch demo"
-                />
-            </div>
-            <div className="chart-grid">
-                <Panel
-                    title="Hiệu suất đa kênh"
-                    subtitle="Lượt tiếp cận trong kỳ · Dữ liệu minh họa"
-                    action={
-                        <div className="chart-legend">
-                            <span>
-                                <i className="purple-dot" />
-                                Kỳ này
-                            </span>
-                            <span>
-                                <i className="mint-dot" />
-                                Kỳ trước
-                            </span>
-                        </div>
-                    }
-                >
-                    <StoredTrend />
-                    <div className="chart-foot">
-                        <span>
-                            <TrendingUp size={15} />
-                            Số liệu được ghi nhận trong database
-                        </span>
-                        <button className="text-link" onClick={() => navigate('traffic')}>
-                            Xem phân tích
-                            <ArrowRight size={14} />
-                        </button>
-                    </div>
-                </Panel>
-                <Panel title="Phân bổ ngân sách" subtitle="Theo nền tảng · Tháng 10">
-                    <BudgetRing campaigns={data.campaigns} />
-                    <div className="budget-legend">
-                        {['Facebook', 'Instagram', 'TikTok', 'Google'].map((p, i) => (
-                            <div key={p}>
-                                <span>
-                                    <i
-                                        style={{
-                                            background: [
-                                                '#9580e7',
-                                                '#efb38a',
-                                                '#6ebbb0',
-                                                '#91b4e8'
-                                            ][i]
-                                        }}
-                                    />
-                                    {p}
-                                </span>
-                                <strong>
-                                    {compact(
-                                        data.campaigns
-                                            .filter((c) => c.platform === p)
-                                            .reduce((s, c) => s + c.budget, 0)
-                                    )}{' '}
-                                    ₫
-                                </strong>
-                            </div>
-                        ))}
-                    </div>
-                </Panel>
-            </div>
-            <div className="dashboard-lower">
-                <Panel
-                    title="Chiến dịch đang hoạt động"
-                    action={
-                        <button className="text-link" onClick={() => navigate('campaigns')}>
-                            Tất cả chiến dịch
-                            <ArrowRight size={14} />
-                        </button>
-                    }
-                >
-                    <div className="campaign-list">
-                        {active.length ? (
-                            active.map((c, i) => (
-                                <button key={c.id} onClick={() => view(c)} className="campaign-row">
-                                    <span className={`campaign-tile tile-${i % 3}`}>
-                                        <Megaphone size={20} />
-                                    </span>
-                                    <div>
-                                        <strong>{c.name}</strong>
-                                        <span>
-                                            <Platform name={c.platform} small />
-                                            {c.platform} · {dateLabel(c.end)}
-                                        </span>
-                                    </div>
-                                    <div className="campaign-progress">
-                                        <span>
-                                            {number(c.leads)}
-                                            <small>khách tiềm năng</small>
-                                        </span>
-                                        <Progress
-                                            value={c.budget ? (c.spent / c.budget) * 100 : 0}
-                                        />
-                                    </div>
-                                    <ChevronRight size={16} />
-                                </button>
-                            ))
-                        ) : (
-                            <Empty title="Chưa có chiến dịch đang chạy" />
-                        )}
-                    </div>
-                </Panel>
-                <Panel
-                    title="Sắp lên sóng"
-                    action={
-                        <button
-                            className="icon-button"
-                            aria-label="Mở lịch nội dung"
-                            onClick={() => navigate('calendar')}
-                        >
-                            <CalendarDays size={18} />
-                        </button>
-                    }
-                >
-                    <div className="upcoming-list">
-                        {data.posts
-                            .filter((p) => p.status === 'Đã lên lịch')
-                            .sort((a, b) =>
-                                `${a.date}T${a.time}`.localeCompare(`${b.date}T${b.time}`)
-                            )
-                            .slice(0, 3)
-                            .map((p) => (
-                                <button
-                                    key={p.id}
-                                    className="upcoming-row"
-                                    onClick={() => compose(p)}
-                                >
-                                    <span className="date-tile">
-                                        <strong>{p.date.slice(-2)}</strong>
-                                        <small>TH{Number(p.date.slice(5, 7))}</small>
-                                    </span>
-                                    <div>
-                                        <strong>{p.name}</strong>
-                                        <span>
-                                            <Platform name={p.platform} small />
-                                            {p.time} · {p.platform}
-                                        </span>
-                                    </div>
-                                    <ChevronRight size={15} />
-                                </button>
-                            ))}
-                        {!data.posts.some((p) => p.status === 'Đã lên lịch') && (
-                            <Empty
-                                title="Lịch đang trống"
-                                description="Lên lịch bài viết đầu tiên của bạn."
-                            />
-                        )}
-                    </div>
-                    <button className="calendar-link" onClick={() => navigate('calendar')}>
-                        Mở lịch nội dung
-                        <ArrowRight size={15} />
-                    </button>
-                </Panel>
-            </div>
-            <div className="insight-note">
-                <span className="insight-star">
-                    <Sparkles size={19} />
-                </span>
-                <div>
-                    <strong>Một góc nhìn để bắt đầu</strong>
-                    <p>
-                        So sánh nội dung có tương tác cao trước khi lên kế hoạch cho bài viết tiếp
-                        theo.
-                    </p>
-                </div>
-                <Button onClick={() => navigate('postInsights')}>
-                    Khám phá nội dung
-                    <ArrowUpRight size={15} />
-                </Button>
-            </div>
-        </>
-    );
-}
-function BudgetRing({ campaigns }) {
-    const total = campaigns.reduce((s, c) => s + c.budget, 0);
-    const pieces = ['Facebook', 'Instagram', 'TikTok', 'Google', 'Zalo'].map((p) =>
-        campaigns.filter((c) => c.platform === p).reduce((s, c) => s + c.budget, 0)
-    );
-    let offset = 0;
-    return (
-        <div className="ring-wrap">
-            <svg viewBox="0 0 180 180" role="img" aria-label={`Tổng ngân sách ${money(total)}`}>
-                <circle cx="90" cy="90" r="68" fill="none" stroke="#f0f1f5" strokeWidth="18" />
-                {pieces.map((v, i) => {
-                    const length = total ? (v / total) * 427.25 : 0;
-                    const current = offset;
-                    offset += length;
-                    return (
-                        <circle
-                            key={i}
-                            cx="90"
-                            cy="90"
-                            r="68"
-                            fill="none"
-                            stroke={['#9580e7', '#efb38a', '#6ebbb0', '#91b4e8', '#ddd6ef'][i]}
-                            strokeWidth="18"
-                            strokeDasharray={`${Math.max(0, length - 4)} ${427.25 - Math.max(0, length - 4)}`}
-                            strokeDashoffset={-current}
-                            transform="rotate(-90 90 90)"
-                        />
-                    );
-                })}
-            </svg>
-            <div>
-                <small>Tổng ngân sách</small>
-                <strong>{compact(total)}</strong>
-                <span>VNĐ</span>
-            </div>
-        </div>
-    );
-}
 export function EntityPage({ kind }) {
     const { data, edit, remove, compose, navigate, view } = useWorkspace();
     const [tab, setTab] = useState('Tất cả');
@@ -1461,7 +1177,7 @@ export function RankCheck() {
     );
 }
 export function Workflows() {
-    const { user, navigate } = useWorkspace();
+    const { user } = useWorkspace();
     const canRun = ['admin', 'manager'].includes(user?.role);
     const [state, setState] = useState({ loading: true, messages: [], runs: [], error: '' });
     const [busy, setBusy] = useState('');
@@ -1498,7 +1214,7 @@ export function Workflows() {
                 <div>
                     <h2>Tự động hóa có chủ đích.</h2>
                     <p>
-                        n8n điều phối email và lịch chạy; Playwright thao tác Dashboard và xuất CSV
+                        n8n xếp việc đọc bài và gửi email; Playwright mở bảng duyệt và đọc chi tiết
                         trên giao diện.
                     </p>
                 </div>
@@ -1508,14 +1224,16 @@ export function Workflows() {
             <div className="workflow-grid">
                 <Panel
                     title="Thông báo duyệt bài"
-                    subtitle="Gửi tới Admin/Manager khi nhân viên gửi duyệt; nhắc trước giờ đăng 3 giờ hoặc sau 2 ngày chờ duyệt."
+                    subtitle="Gửi tới Admin/Manager sau khi Playwright đọc bài chờ duyệt trên giao diện."
                 >
                     <p className="workflow-description">
-                        Email được xếp hàng trong PostgreSQL. n8n chỉ gửi sau khi quản trị viên cấu
-                        hình PostgreSQL và SMTP, rồi bật workflow. Duyệt bài vẫn do người quản lý
-                        thực hiện.
+                        Email được xếp hàng trong PostgreSQL. n8n tạo tác vụ RPA và chỉ gửi sau khi
+                        worker đọc xong phiên bản còn chờ duyệt. Duyệt hoặc từ chối vẫn do người
+                        quản lý thực hiện trên WebApp.
                     </p>
-                    <Button onClick={() => navigate('calendar')}>Mở bài chờ duyệt</Button>
+                    <Button onClick={() => (location.hash = 'posts/approvals')}>
+                        Mở bài chờ duyệt
+                    </Button>
                     {canRun && (
                         <div className="automation-list">
                             <strong>Thông báo gần đây</strong>
@@ -1544,7 +1262,7 @@ export function Workflows() {
                 </Panel>
                 <Panel
                     title="Playwright · tác vụ trên UI"
-                    subtitle="Chụp Dashboard hằng ngày và xuất CSV số liệu bài viết/traffic hằng tuần."
+                    subtitle="Đọc bài chờ duyệt, chụp Dashboard và xuất CSV trên giao diện."
                 >
                     <p className="workflow-description">
                         Chạy thử bằng tài khoản đang đăng nhập. Bản chạy theo lịch cần n8n tạo tác
@@ -1583,8 +1301,15 @@ export function Workflows() {
                                         <span>
                                             {run.kind === 'dashboard_screenshot'
                                                 ? 'Chụp Dashboard'
-                                                : 'Xuất CSV'}
+                                                : run.kind === 'approval_read'
+                                                  ? 'Đọc bài chờ duyệt'
+                                                  : 'Xuất CSV'}
                                         </span>
+                                        {run.plan_id && (
+                                            <a href={`#posts/approvals/${run.plan_id}`}>
+                                                {run.plan_id.slice(0, 8)} · v{run.plan_version}
+                                            </a>
+                                        )}
                                         <Badge
                                             value={
                                                 {
@@ -1604,6 +1329,7 @@ export function Workflows() {
                                                     {name}
                                                 </a>
                                             ))}
+                                        {run.error && <small>{run.error}</small>}
                                     </div>
                                 ))
                             ) : (

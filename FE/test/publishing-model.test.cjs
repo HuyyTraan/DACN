@@ -135,7 +135,8 @@ test('series plan round trip preserves targets, order, media and repeat configur
             { text: 'Reply', kind: 'reply', delay: 'Ngay sau đăng' }
         ],
         repeat: 'Mỗi tuần',
-        repeatCount: 3
+        repeatCount: 3,
+        tag: 'Chiến dịch mùa hè'
     };
     const plan = toPlan(form, 'draft');
     const back = fromPlan({ ...plan, id: 'plan-id', version: 4 }, [
@@ -147,5 +148,8 @@ test('series plan round trip preserves targets, order, media and repeat configur
     assert.equal(back.comments[1].kind, 'reply');
     assert.equal(back.time, '09:00');
     assert.equal(back.repeatCount, 3);
+    assert.equal(plan.tag, 'Chiến dịch mùa hè');
+    assert.equal(back.tag, form.tag);
+    assert.equal(fromPlan({ ...plan, tag: undefined }, []).tag, '');
     assert.equal(back.serverVersion, 4);
 });

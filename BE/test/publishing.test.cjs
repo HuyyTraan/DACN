@@ -94,6 +94,27 @@ test('publishing validates accounts, series, recurrence, media and rejects unsup
     assert.equal(validatePlan({ ...reply, status: 'draft' }).items[1].kind, 'reply');
     assert.equal(validatePlan({ ...plan(), token: 'secret' }).token, undefined);
 });
+
+test('publishing stores one bounded internal tag without modifying provider content', () => {
+    const source = { ...plan(), tag: '  Chiến dịch mùa hè  ' };
+    const normalized = validatePlan(source);
+    assert.equal(normalized.tag, 'Chiến dịch mùa hè');
+    assert.equal(normalized.items[0].content, source.items[0].content);
+    assert.equal(validatePlan(plan()).tag, '');
+    assert.equal(validatePlan({ ...plan(), tag: '' }).tag, '');
+    for (const tag of [
+        42,
+        ['Chiến dịch'],
+        'a'.repeat(51),
+        ' '.repeat(49) + 'xx',
+        'dòng 1\ndòng 2'
+    ]) {
+        assert.throws(
+            () => validatePlan({ ...plan(), tag }),
+            (e) => e.status === 400
+        );
+    }
+});
 test('delivery matrix uses UTC instants, account isolation and serial delays across recurrence', () => {
     const rows = deliveriesFor(validatePlan(plan()), 'id');
     assert.equal(rows.length, 8);
@@ -118,6 +139,85 @@ test('repository updates are atomic and stale versions roll back without deletin
     assert.equal(statements.at(-1).sql, 'ROLLBACK');
     assert.ok(!statements.some((s) => s.sql.startsWith('DELETE')));
     assert.deepEqual(statements[1].args, ['id']);
+});
+
+test('manual cancellation records its reason and only cancels queued deliveries in the current version', async () => {
+    for (const hasOtherOutcome of [false, true]) {
+        const statements = [];
+        const client = {
+            query: async (sql, args) => {
+                statements.push({ sql, args });
+                if (sql.startsWith('SELECT version,status FROM publishing_plans'))
+                    return { rows: [{ version: 3, status: 'scheduled' }] };
+                if (sql.includes("status<>'cancelled'"))
+                    return { rows: hasOtherOutcome ? [{ exists: 1 }] : [] };
+                if (sql.startsWith('UPDATE publishing_deliveries'))
+                    return { rows: [{ id: 'queued-delivery' }] };
+                if (sql.startsWith('UPDATE publishing_plans'))
+                    return {
+                        rows: [{ version: 4, status: hasOtherOutcome ? 'scheduled' : 'cancelled' }]
+                    };
+                return { rows: [] };
+            },
+            release() {}
+        };
+        const repo = new PublishingRepository({ connect: async () => client });
+        const result = await repo.cancel('plan-id', 3, { id: 'actor-id' });
+        assert.equal(result.status, hasOtherOutcome ? 'scheduled' : 'cancelled');
+        assert.equal(result.version, 4);
+        const deliveryUpdate = statements.find((s) =>
+            s.sql.startsWith('UPDATE publishing_deliveries')
+        );
+        assert.match(deliveryUpdate.sql, /plan_version\s*=\s*\$2/);
+        assert.match(deliveryUpdate.sql, /status\s*=\s*'queued'/);
+        assert.deepEqual(deliveryUpdate.args.slice(0, 2), ['plan-id', 3]);
+        const planUpdate = statements.find((s) => s.sql.startsWith('UPDATE publishing_plans'));
+        assert.match(planUpdate.sql, /cancellationReason/);
+        assert.equal(planUpdate.args[2], hasOtherOutcome ? 'scheduled' : 'cancelled');
+        const auditWrite = statements.find((s) => s.sql.startsWith('INSERT INTO studio_audit'));
+        assert.equal(auditWrite.args[0], 'actor-id');
+        assert.equal(auditWrite.args[1], 'schedule.cancelled');
+        assert.match(auditWrite.args[5], /Đã hủy lịch theo yêu cầu/);
+        assert.equal(statements.at(-1).sql, 'COMMIT');
+    }
+});
+
+test('a partly cancelled plan still lists deliveries from its last delivery version', async () => {
+    const repo = new PublishingRepository({
+        query: async (sql) => {
+            if (sql.startsWith('SELECT id, version, payload'))
+                return { rows: [{ id: 'plan-id', version: 4, payload: {}, status: 'scheduled' }] };
+            return {
+                rows: [
+                    { plan_id: 'plan-id', plan_version: 2, status: 'queued', id: 'old-queued' },
+                    { plan_id: 'plan-id', plan_version: 3, status: 'published', id: 'delivery-id' },
+                    { plan_id: 'plan-id', plan_version: 3, status: 'cancelled', id: 'cancelled-id' }
+                ]
+            };
+        }
+    });
+    const result = await repo.list();
+    assert.deepEqual(
+        result.plans[0].deliveries.map((delivery) => delivery.id),
+        ['delivery-id', 'cancelled-id']
+    );
+});
+test('a cancelled pending resubmission does not show deliveries from an older schedule', async () => {
+    const repo = new PublishingRepository({
+        query: async (sql) => {
+            if (sql.startsWith('SELECT id, version, payload'))
+                return {
+                    rows: [{ id: 'plan-id', version: 5, payload: {}, status: 'cancelled' }]
+                };
+            return {
+                rows: [
+                    { plan_id: 'plan-id', plan_version: 2, status: 'cancelled', id: 'old-delivery' }
+                ]
+            };
+        }
+    });
+    const result = await repo.list();
+    assert.deepEqual(result.plans[0].deliveries, []);
 });
 test('claim serializes with cancellation and skips locked jobs; interrupted jobs are never retried', async () => {
     const statements = [];

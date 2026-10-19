@@ -32,6 +32,11 @@ function validatePlan(body, now = Date.now()) {
         (body.name !== undefined && (typeof body.name !== 'string' || body.name.length > 180))
     )
         bad('Tên kế hoạch phải là văn bản, tối đa 180 ký tự.');
+    if (
+        body.tag !== undefined &&
+        (typeof body.tag !== 'string' || body.tag.length > 50 || /[\r\n]/.test(body.tag))
+    )
+        bad('Nhãn kế hoạch phải là một dòng văn bản, tối đa 50 ký tự.');
     if (!['draft', 'pending', 'scheduled'].includes(body.status))
         bad('Trạng thái kế hoạch không hợp lệ.');
     if (
@@ -88,6 +93,7 @@ function validatePlan(body, now = Date.now()) {
         bad('Thời gian đăng phải ở tương lai.');
     return {
         name: postTitle(body.name, items[0].content),
+        tag: (body.tag || '').trim(),
         accountIds: body.accountIds,
         items,
         timezone: body.timezone,
@@ -150,6 +156,12 @@ class PublishingRepository {
                   [page.map((p) => p.id)]
               )
             : { rows: [] };
+        const latestDeliveryVersion = new Map();
+        for (const delivery of deliveries.rows)
+            latestDeliveryVersion.set(
+                delivery.plan_id,
+                Math.max(latestDeliveryVersion.get(delivery.plan_id) || 0, delivery.plan_version)
+            );
         return {
             plans: page.map((p) => ({
                 id: p.id,
@@ -159,17 +171,15 @@ class PublishingRepository {
                 deliveries: deliveries.rows.filter(
                     (d) =>
                         d.plan_id === p.id &&
-                        (p.status === 'scheduled'
-                            ? d.plan_version === p.version
-                            : p.status === 'cancelled'
-                              ? d.plan_version === p.version - 1
-                              : false)
+                        ['scheduled', 'cancelled'].includes(p.status) &&
+                        d.plan_version === latestDeliveryVersion.get(p.id) &&
+                        d.plan_version >= p.version - 1
                 )
             })),
             nextOffset: rows.rows.length > limit ? offset + limit : null
         };
     }
-    async listApprovals(limit = 50, offset = 0, status = 'all', actorId = null) {
+    async listApprovals(limit = 50, offset = 0, status = 'all', actorId = null, planId = null) {
         const selected = status === 'all' ? ['pending', 'scheduled', 'rejected'] : [status];
         const [rows, totals] = await Promise.all([
             this.pool.query(
@@ -183,6 +193,7 @@ class PublishingRepository {
                  LEFT JOIN LATERAL (
                     SELECT h.actor_id,h.created_at FROM studio_plan_history h
                     WHERE h.plan_id=p.id AND h.status IN ('scheduled','rejected')
+                      AND (h.status<>'scheduled' OR NOT (h.payload ? 'cancellationReason'))
                     ORDER BY h.id DESC LIMIT 1
                  ) review ON p.status IN ('scheduled','rejected')
                  LEFT JOIN studio_users reviewer ON reviewer.id=review.actor_id
@@ -198,12 +209,15 @@ class PublishingRepository {
                            count(*) FILTER (WHERE d.status IN ('running','published','unknown'))::int AS locked,
                            array_agg(d.provider_post_id) FILTER (WHERE d.status='published' AND d.provider_post_id IS NOT NULL) AS provider_post_ids
                     FROM publishing_deliveries d
-                    WHERE d.plan_id=p.id AND d.plan_version=p.version
+                    WHERE p.status='scheduled' AND d.plan_id=p.id AND d.plan_version=(
+                        SELECT max(latest.plan_version) FROM publishing_deliveries latest
+                        WHERE latest.plan_id=p.id AND latest.plan_version BETWEEN p.version-1 AND p.version
+                    )
                  ) delivery ON true
-                 WHERE p.status=ANY($3::text[])
+                 WHERE p.status=ANY($3::text[]) AND ($5::uuid IS NULL OR p.id=$5::uuid)
                  ORDER BY CASE WHEN p.status='pending' THEN 0 ELSE 1 END,p.updated_at DESC,p.id DESC
                  LIMIT $1 OFFSET $2`,
-                [limit + 1, offset, selected, actorId]
+                [limit + 1, offset, selected, actorId, planId]
             ),
             this.pool.query(
                 "SELECT status,count(*)::int AS total FROM publishing_plans WHERE status IN ('pending','scheduled','rejected') GROUP BY status"
@@ -367,16 +381,35 @@ class PublishingRepository {
     }
     async cancel(id, version, actor) {
         return this.transaction(async (client) => {
-            const result = await client.query(
-                "UPDATE publishing_plans SET status = 'cancelled', version = version + 1, updated_at = now(),updated_by=$3 WHERE id = $1 AND version = $2 RETURNING version",
-                [id, version, actor?.id || null]
-            );
-            if (!result.rows.length)
-                throw new PublishingError(409, 'Kế hoạch không tồn tại hoặc đã thay đổi.');
-            await client.query(
-                "UPDATE publishing_deliveries SET status = 'cancelled' WHERE plan_id = $1 AND status = 'queued'",
+            const prior = await client.query(
+                'SELECT version,status FROM publishing_plans WHERE id=$1 FOR UPDATE',
                 [id]
             );
+            if (!prior.rows.length || prior.rows[0].version !== version)
+                throw new PublishingError(409, 'Kế hoạch không tồn tại hoặc đã thay đổi.');
+            if (!['draft', 'pending', 'scheduled'].includes(prior.rows[0].status))
+                throw new PublishingError(409, 'Kế hoạch không còn có thể hủy. Hãy tải lại.');
+            const reason = 'Đã hủy lịch theo yêu cầu';
+            const cancelled = await client.query(
+                "UPDATE publishing_deliveries SET status='cancelled',error=$3,finished_at=now() WHERE plan_id=$1 AND plan_version=$2 AND status='queued' RETURNING id",
+                [id, version, reason]
+            );
+            if (prior.rows[0].status === 'scheduled' && !cancelled.rows.length)
+                throw new PublishingError(409, 'Không còn lượt chờ nào để hủy. Hãy tải lại.');
+            const remaining = await client.query(
+                "SELECT 1 FROM publishing_deliveries WHERE plan_id=$1 AND plan_version=$2 AND status<>'cancelled' LIMIT 1",
+                [id, version]
+            );
+            const status = remaining.rows.length ? 'scheduled' : 'cancelled';
+            const result = await client.query(
+                "UPDATE publishing_plans SET status=$3,payload=payload || jsonb_build_object('cancellationReason',$4::text,'cancelledAt',now()::text),version=version+1,updated_at=now(),updated_by=$5 WHERE id=$1 AND version=$2 RETURNING version,status",
+                [id, version, status, reason, actor?.id || null]
+            );
+            await audit(client, actor, 'schedule.cancelled', 'publishing_plans', id, null, {
+                reason,
+                cancelledDeliveries: cancelled.rows.length,
+                status
+            });
             return result.rows[0];
         });
     }
@@ -551,17 +584,19 @@ function publishingRouter({ repository, social, enabled = false }) {
             const offset = Number(req.query.offset || 0);
             const limit = Number(req.query.limit || 50);
             const status = req.query.status || 'all';
+            const planId = req.query.planId || null;
             if (
                 !Number.isInteger(offset) ||
                 offset < 0 ||
                 !Number.isInteger(limit) ||
                 limit < 1 ||
                 limit > 100 ||
-                !['all', 'pending', 'scheduled', 'rejected'].includes(status)
+                !['all', 'pending', 'scheduled', 'rejected'].includes(status) ||
+                (planId !== null && (typeof planId !== 'string' || !uuid.test(planId)))
             )
                 throw new PublishingError(400, 'Bộ lọc hoặc phân trang không hợp lệ.');
             await repository.expirePending();
-            res.json(await repository.listApprovals(limit, offset, status, req.actor?.id));
+            res.json(await repository.listApprovals(limit, offset, status, req.actor?.id, planId));
         })
     );
     const write = handle(async (req, res) => {

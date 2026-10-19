@@ -48,12 +48,22 @@ export default function ApprovalBoard() {
     const [reason, setReason] = useState('');
     const [detail, setDetail] = useState(null);
     const [deleting, setDeleting] = useState(null);
+    const [routeHash, setRouteHash] = useState(location.hash);
+    const targetId = /^#posts\/approvals\/([0-9a-f-]{36})$/i.exec(routeHash)?.[1] || '';
+    useEffect(() => {
+        const onHashChange = () => {
+            setRouteHash(location.hash);
+            setDetail(null);
+        };
+        window.addEventListener('hashchange', onHashChange);
+        return () => window.removeEventListener('hashchange', onHashChange);
+    }, []);
     async function load(offset = 0, filter = status) {
         setLoading(true);
         setError('');
         try {
             const body = await socialRequest(
-                `/api/publishing/approvals?status=${filter}&limit=50&offset=${offset}`
+                `/api/publishing/approvals?status=${filter}&limit=50&offset=${offset}${targetId ? `&planId=${encodeURIComponent(targetId)}` : ''}`
             );
             setItems((current) => (offset ? [...current, ...body.items] : body.items));
             setCounts(body.counts);
@@ -73,7 +83,7 @@ export default function ApprovalBoard() {
             window.removeEventListener('publishing-plans-changed', refresh);
             clearInterval(timer);
         };
-    }, [status]);
+    }, [status, targetId]);
     const visible = items.filter((item) =>
         [item.name, item.items?.[0]?.content, item.createdByName, item.reviewedByName]
             .filter(Boolean)
@@ -163,6 +173,11 @@ export default function ApprovalBoard() {
                     <p>Theo dõi quyết định duyệt của Admin và Manager trên từng kế hoạch.</p>
                 </div>
                 <div className="approval-heading-actions">
+                    {targetId && (
+                        <Button onClick={() => (location.hash = 'posts/approvals')}>
+                            Xem tất cả bài
+                        </Button>
+                    )}
                     <Button icon={RefreshCw} disabled={loading} onClick={() => load()}>
                         Làm mới
                     </Button>
@@ -244,6 +259,8 @@ export default function ApprovalBoard() {
                         {visible.map((item, index) => (
                             <tr
                                 key={item.id}
+                                data-plan-id={item.id}
+                                data-plan-version={item.version}
                                 className={item.publishedCount > 0 ? 'is-published' : ''}
                             >
                                 <td>{index + 1}</td>
@@ -398,7 +415,17 @@ export default function ApprovalBoard() {
             {detail && (
                 <Modal title="Chi tiết bài duyệt" onClose={() => setDetail(null)}>
                     <div className="dialog-body">
-                        <h3 className="approval-detail-title">{detail.name}</h3>
+                        <h3 className="approval-detail-title" data-testid="approval-name">
+                            {detail.name}
+                        </h3>
+                        <p>
+                            <strong>ID bài:</strong>{' '}
+                            <span data-testid="approval-plan-id">{detail.id}</span>
+                        </p>
+                        <p>
+                            <strong>Phiên bản:</strong>{' '}
+                            <span data-testid="approval-plan-version">{detail.version}</span>
+                        </p>
                         <p>
                             <strong>Trạng thái:</strong> {reviewStatus(detail)}
                         </p>
@@ -422,13 +449,20 @@ export default function ApprovalBoard() {
                             </div>
                         )}
                         <p>
-                            <strong>Người tạo:</strong> {detail.createdByName || '—'}
+                            <strong>Người tạo:</strong>{' '}
+                            <span data-testid="approval-creator">
+                                {detail.createdByName || '—'}
+                            </span>
                         </p>
                         <p>
-                            <strong>Page:</strong> {accountNames(detail) || '—'}
+                            <strong>Page:</strong>{' '}
+                            <span data-testid="approval-pages">{accountNames(detail) || '—'}</span>
                         </p>
                         <p>
-                            <strong>Giờ đăng dự kiến:</strong> {dateTime(detail.scheduledAt)}
+                            <strong>Giờ đăng dự kiến:</strong>{' '}
+                            <span data-testid="approval-scheduled-at">
+                                {dateTime(detail.scheduledAt)}
+                            </span>
                         </p>
                         <p>
                             <strong>Người duyệt / từ chối:</strong> {detail.reviewedByName || '—'}
@@ -439,7 +473,12 @@ export default function ApprovalBoard() {
                         {detail.items?.map((content, index) => (
                             <div key={index}>
                                 <strong>Nội dung {index + 1}:</strong>
-                                <p className="approval-detail-content">{content.content}</p>
+                                <p
+                                    className="approval-detail-content"
+                                    data-testid="approval-content"
+                                >
+                                    {content.content}
+                                </p>
                             </div>
                         ))}
                         {detail.rejectionReason && (

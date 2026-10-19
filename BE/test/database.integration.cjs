@@ -18,6 +18,7 @@ const {
 const { emptyWorkspace, seed } = require('../../FE/public/domain');
 const { publishDurably } = require('../server/publish-receipts');
 const { scanApprovalReminders } = require('../server/automation');
+const { runOnce: runRpaOnce } = require('../server/rpa-worker');
 test('real PostgreSQL: migrations, auth/RBAC/CSRF, history and restart persistence', async (t) => {
     if (!process.env.RUN_DATABASE_TESTS) {
         t.skip('Chạy npm run test:database để bật test PostgreSQL riêng.');
@@ -348,6 +349,87 @@ test('real PostgreSQL: migrations, auth/RBAC/CSRF, history and restart persisten
         { recipient_email: 'admin@example.com', status: 'queued' },
         { recipient_email: 'manager@example.com', status: 'queued' }
     ]);
+    const approvalWorkflow = JSON.parse(
+        await fs.readFile(path.join(__dirname, '../workflows/post-approval-email.n8n.json'), 'utf8')
+    );
+    const workflowQuery = (name) =>
+        approvalWorkflow.nodes.find((node) => node.name === name).parameters.query;
+    assert.equal((await pool.query(workflowQuery('Queue approval reads'))).rows[0].jobs_queued, 1);
+    assert.equal((await pool.query(workflowQuery('Queue approval reads'))).rows[0].jobs_queued, 0);
+    const approvalJob = (
+        await pool.query(
+            "SELECT id,status FROM studio_rpa_runs WHERE kind='approval_read' AND plan_id=$1 AND plan_version=$2",
+            [waiting.id, waiting.version]
+        )
+    ).rows[0];
+    assert.equal(approvalJob.status, 'queued');
+    assert.equal(
+        await runRpaOnce(pool, {
+            email: 'viewer@example.test',
+            password: 'test-only',
+            port: 3000,
+            runBrowserJob: async ({ planId, planVersion }) => ({
+                planId,
+                planVersion,
+                name: 'Approval integration',
+                creator: 'Editor',
+                content: 'Nội dung test',
+                pages: 'Page test',
+                scheduledAt: 'Ngày mai',
+                readAt: new Date().toISOString()
+            })
+        }),
+        true
+    );
+    assert.equal(
+        (
+            await pool.query('SELECT status,result,read_at FROM studio_rpa_runs WHERE id=$1', [
+                approvalJob.id
+            ])
+        ).rows[0].status,
+        'success'
+    );
+    assert.equal(await scanApprovalReminders(pool, new Date(Date.now() + 90 * 60000)), 2);
+    const claimed = (await pool.query(workflowQuery('Claim ready notifications'))).rows;
+    const claimedApprovalEmails = (
+        await pool.query(
+            "SELECT id FROM studio_automation_messages WHERE id=ANY($1::uuid[]) AND kind='approval_requested' ORDER BY recipient_email",
+            [claimed.map((row) => row.id)]
+        )
+    ).rows;
+    assert.equal(claimedApprovalEmails.length, 2);
+    const preflightQuery = (id) =>
+        workflowQuery('Preflight current revision').replaceAll(
+            "{{ $('Claim ready notifications').item.json.id }}",
+            id
+        );
+    const readyEmail = (await pool.query(preflightQuery(claimedApprovalEmails[0].id))).rows[0];
+    assert.equal(readyEmail.plan_id, waiting.id);
+    assert.equal(readyEmail.content, 'Nội dung test');
+    await pool.query(
+        workflowQuery('Mark email sent').replaceAll(
+            "{{ $('Preflight current revision').item.json.id }}",
+            readyEmail.id
+        )
+    );
+    const reminderForManager = (
+        await pool.query(
+            "SELECT id FROM studio_automation_messages WHERE id=ANY($1::uuid[]) AND kind='approval_due_soon' AND recipient_email='manager@example.com'",
+            [claimed.map((row) => row.id)]
+        )
+    ).rows[0].id;
+    await pool.query("UPDATE studio_users SET active=false WHERE email='manager@example.com'");
+    assert.equal((await pool.query(preflightQuery(reminderForManager))).rowCount, 0);
+    assert.equal(
+        (
+            await pool.query('SELECT status FROM studio_automation_messages WHERE id=$1', [
+                reminderForManager
+            ])
+        ).rows[0].status,
+        'cancelled'
+    );
+    await pool.query("UPDATE studio_users SET active=true WHERE email='manager@example.com'");
+    assert.equal((await pool.query(workflowQuery('Claim ready notifications'))).rowCount, 0);
     response = await request(
         '/api/auth/login',
         {
@@ -389,6 +471,10 @@ test('real PostgreSQL: migrations, auth/RBAC/CSRF, history and restart persisten
         "UPDATE publishing_deliveries SET status='published',provider_post_id='page_external-post' WHERE plan_id=$1",
         [toDelete.id]
     );
+    await pool.query(
+        "INSERT INTO studio_rpa_runs(kind,status,plan_id,plan_version,result) VALUES('approval_read','success',$1,$2,'{}'::jsonb)",
+        [toDelete.id, toDelete.version]
+    );
     response = await request(deleteUrl, { method: 'DELETE', body: { version: toDelete.version } });
     assert.equal(response.status, 200);
     assert.deepEqual(await response.json(), { id: toDelete.id, deleted: true });
@@ -396,7 +482,8 @@ test('real PostgreSQL: migrations, auth/RBAC/CSRF, history and restart persisten
         ['publishing_plans', 'id'],
         ['publishing_deliveries', 'plan_id'],
         ['studio_plan_history', 'plan_id'],
-        ['studio_automation_messages', 'plan_id']
+        ['studio_automation_messages', 'plan_id'],
+        ['studio_rpa_runs', 'plan_id']
     ]) {
         assert.equal(
             (
@@ -471,6 +558,14 @@ test('real PostgreSQL: migrations, auth/RBAC/CSRF, history and restart persisten
     let approvalList = await response.json();
     assert.ok(approvalList.items.some((item) => item.id === waiting.id));
     assert.ok(approvalList.counts.pending >= 1);
+    response = await request('/api/dashboard?period=week');
+    assert.equal(response.status, 200);
+    const overview = await response.json();
+    assert.equal(overview.period, 'week');
+    assert.ok(overview.publishing.pending >= 1);
+    assert.ok(overview.publishing.pendingItems.some((item) => item.id === waiting.id));
+    assert.equal(overview.metrics.records, 0);
+    assert.equal((await request('/api/dashboard?period=invalid')).status, 400);
     response = await request(
         '/api/publishing/plans',
         {
@@ -544,7 +639,8 @@ test('real PostgreSQL: migrations, auth/RBAC/CSRF, history and restart persisten
     response = await request('/api/publishing/approvals?status=pending');
     approvalList = await response.json();
     assert.equal(approvalList.items.find((item) => item.id === toReject.id).reviewedByName, null);
-    assert.equal(await scanApprovalReminders(pool), 4);
+    // A fresh submission does not receive an immediate second "due soon" email.
+    assert.equal(await scanApprovalReminders(pool), 0);
     assert.equal(await scanApprovalReminders(pool), 0);
     assert.equal(
         (
@@ -626,6 +722,15 @@ test('real PostgreSQL: migrations, auth/RBAC/CSRF, history and restart persisten
     );
     await repo.expirePending(Date.now() + 7200000);
     assert.equal((await repo.list()).plans.find((p) => p.id === waiting.id).status, 'scheduled');
+    assert.equal((await pool.query(preflightQuery(claimedApprovalEmails[1].id))).rowCount, 0);
+    assert.equal(
+        (
+            await pool.query('SELECT status FROM studio_automation_messages WHERE id=$1', [
+                claimedApprovalEmails[1].id
+            ])
+        ).rows[0].status,
+        'cancelled'
+    );
     const approved = (await repo.list()).plans.find((p) => p.id === waiting.id);
     const cancelled = await repo.cancel(waiting.id, approved.version);
     const resent = await repo.write(waiting.id, validatePlan(pendingBody), cancelled.version);
@@ -758,6 +863,10 @@ test('real PostgreSQL: migrations, auth/RBAC/CSRF, history and restart persisten
         assert.equal(r.status, 201, key);
         assert.equal((await request('/api/records/' + key)).status, 200, key);
     }
+    const measuredOverview = await (await request('/api/dashboard?period=month')).json();
+    assert.equal(measuredOverview.metrics.records, 1);
+    assert.equal(measuredOverview.metrics.reach, 100);
+    assert.equal(measuredOverview.metrics.clicks, 5);
     assert.equal(
         (
             await request('/api/records/socialAccounts', {
@@ -846,6 +955,8 @@ test('real PostgreSQL: migrations, auth/RBAC/CSRF, history and restart persisten
     ).items.find((item) => item.id === plan.id);
     assert.equal(publishedReview.publishedCount, 1);
     assert.equal(publishedReview.isLocked, true);
+    const publishedOverview = await (await request('/api/dashboard?period=week')).json();
+    assert.ok(publishedOverview.publishing.published >= 1);
     assert.ok(
         (await pool.query('SELECT count(*)::int AS n FROM studio_delivery_history')).rows[0].n >= 3
     );

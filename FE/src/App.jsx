@@ -26,12 +26,14 @@ import {
     X
 } from 'lucide-react';
 import { Avatar, Badge, Button, Empty, Modal, Platform, dateLabel, money } from './components.jsx';
-import { Analytics, Dashboard, EntityPage, InboxPage, RankCheck, Workflows } from './pages.jsx';
+import { Analytics, EntityPage, InboxPage, RankCheck, Workflows } from './pages.jsx';
+import Dashboard from './Dashboard.jsx';
 import Composer from './Composer.jsx';
 import PublishingCalendar from './PublishingCalendar.jsx';
 import { Connections, SocialPosts, socialRequest } from './Social.jsx';
 import { apiFetch } from './Auth.jsx';
 import Administration from './Administration.jsx';
+import AiAnalysis from './AiAnalysis.jsx';
 
 export const Workspace = createContext(null);
 export const useWorkspace = () => useContext(Workspace);
@@ -102,6 +104,12 @@ export const navigation = [
         icon: Wallet,
         group: 'PHÂN TÍCH & BÁO CÁO',
         description: 'Hiểu hiệu quả. Chủ động ngân sách.'
+    },
+    {
+        id: 'aiAnalysis',
+        label: 'AI Analysis',
+        icon: BarChart3,
+        description: 'Phân tích số liệu Page theo kỳ với căn cứ kiểm tra được.'
     },
     {
         id: 'traffic',
@@ -201,7 +209,7 @@ const schema = {
 };
 const collectionFor = (id) => ({ rankings: 'keywords' })[id] || id;
 export default function App({ user, onLogout }) {
-    const [page, setPage] = useState(() => location.hash.slice(1) || 'dashboard');
+    const [page, setPage] = useState(() => location.hash.slice(1).split('/')[0] || 'dashboard');
     const [data, setData] = useState(window.Omni.emptyWorkspace());
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
@@ -242,7 +250,9 @@ export default function App({ user, onLogout }) {
         }
     }
     const [modal, setModal] = useState(null);
-    const [postsTab, setPostsTab] = useState('planner');
+    const [postsTab, setPostsTab] = useState(() =>
+        location.hash.startsWith('#posts/approvals') ? 'approvals' : 'planner'
+    );
     const [approvalNotice, setApprovalNotice] = useState({
         items: [],
         counts: { pending: 0 },
@@ -317,7 +327,9 @@ export default function App({ user, onLogout }) {
     }, []);
     useEffect(() => {
         const handler = () => {
-            setPage(location.hash.slice(1) || 'dashboard');
+            const hash = location.hash.slice(1);
+            setPage(hash.split('/')[0] || 'dashboard');
+            if (hash.startsWith('posts/approvals')) setPostsTab('approvals');
             setMobile(false);
         };
         window.addEventListener('hashchange', handler);
@@ -346,6 +358,12 @@ export default function App({ user, onLogout }) {
         location.hash = id;
         setPage(id);
         if (id === 'posts') setPostsTab('planner');
+        setMobile(false);
+    }
+    function openPostsTab(tab) {
+        setPostsTab(tab);
+        location.hash = 'posts';
+        setPage('posts');
         setMobile(false);
     }
     async function update(next, message = 'Đã lưu thay đổi') {
@@ -429,6 +447,7 @@ export default function App({ user, onLogout }) {
         useLocalWorkspace: () => load(true),
         update,
         navigate,
+        openPostsTab,
         edit,
         remove,
         compose,
@@ -591,8 +610,8 @@ export default function App({ user, onLogout }) {
                                         value={period}
                                         onChange={(e) => setPeriod(e.target.value)}
                                     >
-                                        <option value="month">01 – 31 Th10, 2026</option>
-                                        <option value="week">04 – 10 Th10, 2026</option>
+                                        <option value="month">30 ngày gần nhất</option>
+                                        <option value="week">7 ngày gần nhất</option>
                                     </select>
                                 </label>
                             )}
@@ -646,6 +665,8 @@ export default function App({ user, onLogout }) {
                         <Dashboard />
                     ) : current.id === 'calendar' ? (
                         <PublishingCalendar />
+                    ) : current.id === 'aiAnalysis' ? (
+                        <AiAnalysis />
                     ) : current.id === 'chat' ? (
                         <InboxPage />
                     ) : current.id === 'rankCheck' ? (

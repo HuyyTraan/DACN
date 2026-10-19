@@ -1,0 +1,4 @@
+providerPostId,periodStart,periodEnd,timezone,reach,impressions,interactions,linkClicks,text
+v07_post_1,2026-08-01,2026-08-07,Asia/Ho_Chi_Minh,1000,1300,70,26,Bài thứ nhất
+v07_post_2,2026-08-01,2026-08-07,Asia/Ho_Chi_Minh,980,1280,70,25,Bài thứ hai
+v07_post_3,2026-08-01,2026-08-07,Asia/Ho_Chi_Minh,1020,1320,72,27,Bài thứ ba

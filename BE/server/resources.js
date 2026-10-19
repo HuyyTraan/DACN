@@ -87,11 +87,76 @@ function resourceRouter(pool, auth, prisma = null) {
     router.get(
         '/dashboard',
         handle(async (req, res) => {
-            const d = await readRecords(pool);
+            const period = req.query.period || 'month';
+            if (!['week', 'month'].includes(period)) fail(400, 'Khoảng thời gian không hợp lệ.');
+            const days = period === 'week' ? 7 : 30;
+            const [d, planCounts, deliveries, pending, upcoming, recordedMetrics] =
+                await Promise.all([
+                    readRecords(pool),
+                    pool.query(
+                        'SELECT status,count(*)::int AS total FROM publishing_plans GROUP BY status'
+                    ),
+                    pool.query(
+                        `SELECT count(*) FILTER (WHERE d.status='queued' AND p.status='scheduled' AND d.plan_version=p.version AND d.due_at>=now() AND d.due_at<now()+interval '7 days')::int AS upcoming,
+                                count(*) FILTER (WHERE d.status='published' AND d.finished_at>=now()-$1::int*interval '1 day')::int AS published,
+                                count(*) FILTER (WHERE d.plan_version=p.version AND d.status IN ('failed','unknown'))::int AS attention
+                         FROM publishing_deliveries d
+                         JOIN publishing_plans p ON p.id=d.plan_id`,
+                        [days]
+                    ),
+                    pool.query(
+                        `SELECT id,payload->>'name' AS name,payload->>'scheduledAt' AS scheduled_at
+                         FROM publishing_plans WHERE status='pending'
+                         ORDER BY (payload->>'scheduledAt')::timestamptz,id LIMIT 5`
+                    ),
+                    pool.query(
+                        `SELECT d.id,d.plan_id,d.account_id,d.due_at,p.payload->>'name' AS name
+                         FROM publishing_deliveries d JOIN publishing_plans p ON p.id=d.plan_id
+                         WHERE p.status='scheduled' AND d.plan_version=p.version AND d.status='queued'
+                           AND d.due_at>=now() AND d.due_at<now()+interval '7 days'
+                         ORDER BY d.due_at,d.id LIMIT 5`
+                    ),
+                    pool.query(
+                        'SELECT payload,created_at FROM studio_metrics WHERE workspace_id=1 AND deleted_at IS NULL'
+                    )
+                ]);
+            const cutoff = Date.now() - days * 86400000;
+            const metrics = recordedMetrics.rows
+                .filter((row) => {
+                    const measuredAt = Date.parse(row.payload.measuredAt || row.created_at);
+                    return (
+                        Number.isFinite(measuredAt) &&
+                        measuredAt >= cutoff &&
+                        measuredAt <= Date.now()
+                    );
+                })
+                .reduce(
+                    (totals, row) => {
+                        totals.records++;
+                        for (const key of ['reach', 'clicks', 'spend'])
+                            totals[key] += Number(row.payload[key]) || 0;
+                        return totals;
+                    },
+                    { records: 0, reach: 0, clicks: 0, spend: 0 }
+                );
+            const count = (status) =>
+                planCounts.rows.find((row) => row.status === status)?.total || 0;
             res.json({
                 counts: Object.fromEntries(Object.entries(d).map(([k, v]) => [k, v.length])),
                 budget: d.campaigns.reduce((a, b) => a + b.budget, 0),
                 spent: d.campaigns.reduce((a, b) => a + b.spent, 0),
+                period,
+                metrics,
+                publishing: {
+                    pending: count('pending'),
+                    rejected: count('rejected'),
+                    scheduled: count('scheduled'),
+                    upcoming: deliveries.rows[0].upcoming,
+                    published: deliveries.rows[0].published,
+                    attention: deliveries.rows[0].attention,
+                    pendingItems: pending.rows,
+                    upcomingItems: upcoming.rows
+                },
                 source: 'postgres',
                 externalAnalyticsConnected: false
             });

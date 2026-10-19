@@ -11,5 +11,10 @@ services:
             N8N_SECURE_COOKIE: 'false'
         volumes:
             - n8n_host_data:/home/node/.n8n
+    mailpit:
+        image: axllent/mailpit:latest
+        profiles: ['demo-mail']
+        ports:
+            - '127.0.0.1:8025:8025'
 volumes:
     n8n_host_data:

@@ -11,6 +11,152 @@
         }
     ],
     "paths": {
+        "/api/ai/status": {
+            "get": {
+                "summary": "Trạng thái PostgreSQL, cấu hình Gemini và hạn mức AI hôm nay",
+                "security": [{ "cookieAuth": [] }],
+                "responses": {
+                    "200": {
+                        "description": "ready, providerConfigured, freeTierOnly, budgetConfigured, model, limitPerDay, remainingToday, remainingBudgetVnd. Chế độ Free Tier mặc định chỉ cho phép gemini-2.5-flash-lite và không yêu cầu đơn giá; chủ key phải kiểm tra Billing Tier của project trong AI Studio."
+                    }
+                }
+            }
+        },
+        "/api/ai/imports": {
+            "post": {
+                "summary": "Nhập số liệu Facebook Page theo kỳ, tối đa 30 bài (Admin/Manager)",
+                "description": "CSV được FE preview rồi gửi dạng JSON. Không nhận snapshot lifetime. Chống trùng/chồng kỳ theo Page và post. Trả KPI/facts và hai payload chính xác sẽ gửi AI (có/không text đã ẩn thông tin nhạy cảm). Interactions là tổng hành động tương tác cùng kỳ; linkClicks là nhấp liên kết cùng kỳ. Reach tổng theo bài không phải unique Page reach.",
+                "security": [{ "cookieAuth": [] }],
+                "parameters": [
+                    {
+                        "name": "X-CSRF-Token",
+                        "in": "header",
+                        "required": true,
+                        "schema": { "type": "string" }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": { "$ref": "#/components/schemas/AiImportInput" }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "description": "{import,kpis,facts,limitations,aiPayload,aiPayloadWithText}"
+                    },
+                    "400": { "description": "Dữ liệu, kỳ hoặc định nghĩa không hợp lệ" },
+                    "403": { "description": "Thiếu quyền/CSRF" },
+                    "409": { "description": "Kỳ đo trùng hoặc chồng lấn" },
+                    "503": { "description": "PostgreSQL/migration chưa sẵn sàng" }
+                }
+            }
+        },
+        "/api/ai/imports/{id}": {
+            "get": {
+                "summary": "Xem lại dữ liệu nhập và KPI/facts",
+                "security": [{ "cookieAuth": [] }],
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": { "type": "string", "format": "uuid" }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "{import,kpis,facts,limitations,aiPayload,aiPayloadWithText}"
+                    },
+                    "404": { "description": "Không tìm thấy" }
+                }
+            }
+        },
+        "/api/ai/analyses": {
+            "get": {
+                "summary": "Lịch sử phân tích AI, mới nhất trước",
+                "security": [{ "cookieAuth": [] }],
+                "parameters": [
+                    {
+                        "name": "limit",
+                        "in": "query",
+                        "schema": { "type": "integer", "minimum": 1, "maximum": 100, "default": 20 }
+                    },
+                    {
+                        "name": "offset",
+                        "in": "query",
+                        "schema": { "type": "integer", "minimum": 0, "default": 0 }
+                    }
+                ],
+                "responses": { "200": { "description": "{items,total}" } }
+            },
+            "post": {
+                "summary": "Yêu cầu Gemini phân tích một import (Admin/Manager)",
+                "description": "Một adapter Gemini REST dùng structured output. Model/giá phải cấu hình trên server; không gọi tự động. Báo cáo lỗi vẫn giữ KPI/facts trong analysis đã lưu. Cache theo snapshot + model/prompt/schema version; 10 yêu cầu/ngày mặc định, ngân sách giữ dự phòng theo max input/output. Tài liệu provider: https://ai.google.dev/gemini-api/docs/generate-content/structured-output",
+                "security": [{ "cookieAuth": [] }],
+                "parameters": [
+                    {
+                        "name": "X-CSRF-Token",
+                        "in": "header",
+                        "required": true,
+                        "schema": { "type": "string" }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "required": ["importId", "includeText"],
+                                "properties": {
+                                    "importId": { "type": "string", "format": "uuid" },
+                                    "includeText": { "type": "boolean" }
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": { "description": "{analysis,cached:true}" },
+                    "201": {
+                        "description": "{analysis,cached:false}; report có summary/findings[{factIds,explanation}]/recommendations tối đa 3/limitations"
+                    },
+                    "403": { "description": "Thiếu quyền/CSRF" },
+                    "409": { "description": "Input giống nhau đang phân tích" },
+                    "422": {
+                        "description": "Không có fact số hợp lệ cùng kỳ để AI phân tích; import/KPI vẫn xem được"
+                    },
+                    "429": { "description": "Hết hạn mức hoặc ngân sách" },
+                    "502": {
+                        "description": "Provider/output lỗi, {error,analysis} với KPI/facts đã lưu"
+                    },
+                    "504": {
+                        "description": "Provider timeout, {error,analysis} với KPI/facts đã lưu"
+                    }
+                }
+            }
+        },
+        "/api/ai/analyses/{id}": {
+            "get": {
+                "summary": "Báo cáo phân tích và căn cứ đã lưu",
+                "security": [{ "cookieAuth": [] }],
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": { "type": "string", "format": "uuid" }
+                    }
+                ],
+                "responses": {
+                    "200": { "description": "{analysis}" },
+                    "404": { "description": "Không tìm thấy" }
+                }
+            }
+        },
         "/api/health": {
             "get": {
                 "summary": "Kiểm tra HTTP server (không kiểm tra kết nối DB)",
@@ -793,6 +939,12 @@
                     },
                     {
                         "in": "query",
+                        "name": "planId",
+                        "description": "Lọc đúng bài cho đường dẫn mở chi tiết từ email/RPA.",
+                        "schema": { "type": "string", "format": "uuid" }
+                    },
+                    {
+                        "in": "query",
                         "name": "limit",
                         "schema": { "type": "integer", "minimum": 1, "maximum": 100, "default": 50 }
                     },
@@ -927,7 +1079,7 @@
         },
         "/api/publishing/plans/{id}/cancel": {
             "post": {
-                "summary": "Hủy lượt đang chờ; không thu hồi lượt đã gửi",
+                "summary": "Hủy lượt queued phiên bản hiện tại; giữ kết quả đã có và ghi lý do/lịch sử",
                 "parameters": [
                     {
                         "in": "path",
@@ -967,7 +1119,7 @@
                 },
                 "responses": {
                     "200": {
-                        "description": "Phiên bản mới"
+                        "description": "Trả version và status mới; scheduled nếu phiên bản còn lượt không bị hủy, cancelled nếu tất cả lượt đã hủy"
                     },
                     "400": {
                         "description": "Dữ liệu không hợp lệ"
@@ -1475,7 +1627,19 @@
         },
         "/api/dashboard": {
             "get": {
-                "summary": "Tổng hợp từ bản ghi PostgreSQL, không số liệu giả",
+                "summary": "Tổng quan vận hành: bản ghi workspace, trạng thái duyệt/lượt đăng và metrics đã lưu; không bao gồm insight trực tiếp từ nền tảng",
+                "parameters": [
+                    {
+                        "name": "period",
+                        "in": "query",
+                        "description": "Khoảng thời gian cho lượt đã đăng và metrics; lịch sắp đăng luôn là 7 ngày tới",
+                        "schema": {
+                            "type": "string",
+                            "enum": ["week", "month"],
+                            "default": "month"
+                        }
+                    }
+                ],
                 "security": [
                     {
                         "cookieAuth": []
@@ -1483,7 +1647,7 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "Thành công"
+                        "description": "counts/budget/spent từ workspace; publishing có pending/rejected/scheduled, số lượt upcoming/published/attention và tối đa 5 mục mỗi danh sách; metrics là số liệu ghi nhận trong 7 hoặc 30 ngày"
                     },
                     "400": {
                         "description": "Dữ liệu không hợp lệ"
@@ -2213,7 +2377,7 @@
         },
         "/api/automation/status": {
             "get": {
-                "summary": "Trạng thái hàng email duyệt bài và lịch sử RPA",
+                "summary": "Trạng thái email và RPA, gồm plan_id/plan_version/read_at/error cho job đọc bài",
                 "responses": {
                     "200": {
                         "description": "Thành công"
@@ -2334,6 +2498,70 @@
     },
     "components": {
         "schemas": {
+            "AiImportInput": {
+                "type": "object",
+                "required": ["pageId", "periodStart", "periodEnd", "timezone", "source", "rows"],
+                "properties": {
+                    "pageId": { "type": "string", "maxLength": 120 },
+                    "periodStart": { "type": "string", "format": "date" },
+                    "periodEnd": { "type": "string", "format": "date" },
+                    "timezone": {
+                        "type": "string",
+                        "enum": ["Asia/Ho_Chi_Minh", "Asia/Singapore", "UTC"]
+                    },
+                    "source": { "type": "string", "enum": ["manual", "csv", "demo"] },
+                    "sourceLabel": { "type": "string", "maxLength": 120 },
+                    "measurementType": { "type": "string", "enum": ["period"] },
+                    "metricDefinitionVersion": {
+                        "type": "string",
+                        "enum": ["page-post-period-v1"]
+                    },
+                    "rows": {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": 30,
+                        "items": {
+                            "type": "object",
+                            "required": ["providerPostId"],
+                            "properties": {
+                                "providerPostId": { "type": "string", "maxLength": 160 },
+                                "periodStart": {
+                                    "type": "string",
+                                    "format": "date",
+                                    "description": "Mặc định bằng periodStart của batch"
+                                },
+                                "periodEnd": {
+                                    "type": "string",
+                                    "format": "date",
+                                    "description": "Mặc định bằng periodEnd của batch"
+                                },
+                                "timezone": {
+                                    "type": "string",
+                                    "description": "Nếu có phải trùng múi giờ batch"
+                                },
+                                "measurementType": { "type": "string", "enum": ["period"] },
+                                "reach": { "type": "integer", "minimum": 0, "nullable": true },
+                                "impressions": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "nullable": true
+                                },
+                                "interactions": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "nullable": true
+                                },
+                                "linkClicks": { "type": "integer", "minimum": 0, "nullable": true },
+                                "text": {
+                                    "type": "string",
+                                    "maxLength": 1000,
+                                    "description": "Nội dung bài được phép dùng, chỉ gửi AI khi includeText=true; email/link/số liên hệ được ẩn"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
             "Workspace": {
                 "type": "object",
                 "required": [
@@ -2517,6 +2745,11 @@
                         "type": "string",
                         "description": "Tên quản lý nội bộ tùy chọn; để trống hoặc bỏ field sẽ lấy dòng đầu nội dung bài chính.",
                         "maxLength": 180
+                    },
+                    "tag": {
+                        "type": "string",
+                        "maxLength": 50,
+                        "description": "Một nhãn quản lý nội bộ tùy chọn, không được chèn vào nội dung gửi nền tảng."
                     },
                     "accountIds": {
                         "type": "array",

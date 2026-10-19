@@ -154,7 +154,7 @@
                     }
                 },
                 {
-                    "name": "Database aggregates",
+                    "name": "Dashboard overview",
                     "request": {
                         "method": "GET",
                         "header": [
@@ -168,9 +168,10 @@
                             }
                         ],
                         "url": {
-                            "raw": "{{baseUrl}}/api/dashboard",
+                            "raw": "{{baseUrl}}/api/dashboard?period=month",
                             "host": ["{{baseUrl}}"],
-                            "path": ["api", "dashboard"]
+                            "path": ["api", "dashboard"],
+                            "query": [{ "key": "period", "value": "month" }]
                         }
                     }
                 },
@@ -550,7 +551,7 @@
                         "url": "{{baseUrl}}/api/publishing/plans",
                         "body": {
                             "mode": "raw",
-                            "raw": "{\n  \"name\": \"Bản soạn\",\n  \"status\": \"draft\",\n  \"accountIds\": [],\n  \"items\": [\n    {\n      \"content\": \"Nội dung thử lưu nháp\",\n      \"kind\": \"post\",\n      \"delayMinutes\": 0\n    }\n  ],\n  \"timezone\": \"Asia/Ho_Chi_Minh\",\n  \"repeat\": \"none\",\n  \"repeatCount\": 1,\n  \"scheduledAt\": \"2099-01-01T02:00:00Z\"\n}"
+                            "raw": "{\n  \"name\": \"Bản soạn\",\n  \"tag\": \"Chiến dịch mùa hè\",\n  \"status\": \"draft\",\n  \"accountIds\": [],\n  \"items\": [\n    {\n      \"content\": \"Nội dung thử lưu nháp\",\n      \"kind\": \"post\",\n      \"delayMinutes\": 0\n    }\n  ],\n  \"timezone\": \"Asia/Ho_Chi_Minh\",\n  \"repeat\": \"none\",\n  \"repeatCount\": 1,\n  \"scheduledAt\": \"2099-01-01T02:00:00Z\"\n}"
                         }
                     }
                 }
@@ -565,6 +566,13 @@
                     "request": {
                         "method": "GET",
                         "url": "{{baseUrl}}/api/publishing/approvals?status=all&limit=50&offset=0"
+                    }
+                },
+                {
+                    "name": "Open one approval by ID",
+                    "request": {
+                        "method": "GET",
+                        "url": "{{baseUrl}}/api/publishing/approvals?status=all&planId={{planId}}"
                     }
                 },
                 {
@@ -645,6 +653,66 @@
                             "host": ["{{baseUrl}}"],
                             "path": ["api", "automation", "status"]
                         }
+                    }
+                }
+            ]
+        },
+        {
+            "name": "AI Analysis (Gemini call is opt-in)",
+            "item": [
+                {
+                    "name": "AI status",
+                    "request": { "method": "GET", "url": "{{baseUrl}}/api/ai/status" }
+                },
+                {
+                    "name": "Import measured Page metrics (Admin/Manager)",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            { "key": "Content-Type", "value": "application/json" },
+                            { "key": "X-CSRF-Token", "value": "{{csrf}}" }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\"pageId\":\"page-test\",\"periodStart\":\"2026-10-01\",\"periodEnd\":\"2026-10-07\",\"timezone\":\"Asia/Ho_Chi_Minh\",\"source\":\"demo\",\"sourceLabel\":\"Dữ liệu tổng hợp để demo\",\"rows\":[{\"providerPostId\":\"post-test-1\",\"reach\":100,\"impressions\":200,\"interactions\":10,\"linkClicks\":4}]}"
+                        },
+                        "url": "{{baseUrl}}/api/ai/imports"
+                    }
+                },
+                {
+                    "name": "Read import and AI disclosure",
+                    "request": {
+                        "method": "GET",
+                        "url": "{{baseUrl}}/api/ai/imports/{{aiImportId}}"
+                    }
+                },
+                {
+                    "name": "Create analysis (calls paid provider; run manually only)",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            { "key": "Content-Type", "value": "application/json" },
+                            { "key": "X-CSRF-Token", "value": "{{csrf}}" }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\"importId\":\"{{aiImportId}}\",\"includeText\":false}"
+                        },
+                        "url": "{{baseUrl}}/api/ai/analyses"
+                    }
+                },
+                {
+                    "name": "Analysis history",
+                    "request": {
+                        "method": "GET",
+                        "url": "{{baseUrl}}/api/ai/analyses?limit=20&offset=0"
+                    }
+                },
+                {
+                    "name": "Analysis detail",
+                    "request": {
+                        "method": "GET",
+                        "url": "{{baseUrl}}/api/ai/analyses/{{aiAnalysisId}}"
                     }
                 }
             ]
