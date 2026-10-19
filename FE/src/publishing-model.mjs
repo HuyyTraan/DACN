@@ -106,6 +106,7 @@ export function mergePublishedEvents(events, posts, zone) {
 export function toPlan(form, status) {
     return {
         name: form.name,
+        tag: form.tag ?? '',
         accountIds: form.accountIds || [],
         items: [
             { content: form.content, image: form.image || '', kind: 'post', delayMinutes: 0 },
@@ -136,6 +137,7 @@ export function fromPlan(plan, accounts) {
         : { date: window.Omni.today, time: '09:00' };
     return {
         name: plan.name,
+        tag: plan.tag || '',
         content: first.content,
         image: first.image,
         accountIds: plan.accountIds,

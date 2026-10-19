@@ -1,0 +1,4 @@
+providerPostId,periodStart,periodEnd,timezone,reach,impressions,interactions,linkClicks,text
+v06_post_1,2026-10-06,2026-10-12,Asia/Ho_Chi_Minh,2000,3000,300,75,Bài A trong tập chọn
+v06_post_2,2026-10-06,2026-10-12,Asia/Ho_Chi_Minh,800,1100,24,11,Bài B trong tập chọn
+v06_post_3,2026-10-06,2026-10-12,Asia/Ho_Chi_Minh,700,1000,14,8,Bài C trong tập chọn

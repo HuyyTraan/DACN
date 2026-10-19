@@ -8,6 +8,8 @@ Publishing approval: migration 007 thêm `pending`. Gửi duyệt lưu kế ho�
 
 Migration 011 thêm `rejected` cho kế hoạch bị Admin/Manager từ chối có lý do; không tạo delivery. Editor chỉ gửi lại `pending` sau khi sửa và chọn giờ đủ xa. Bảng duyệt trong FE/src/ApprovalBoard.jsx đọc từ PostgreSQL và lịch sử xử lý, không giả trạng thái duyệt từ workspace.
 
+Migration 013 thêm job RPA `approval_read` theo ID/phiên bản, kết quả JSON và thời điểm đọc. Workflow email n8n tạo job từ outbox rồi chỉ gửi sau khi Playwright đọc UI và kiểm tra lại bài `pending`/người nhận; `sending` không tự retry khi SMTP chưa rõ. Link email mở `#posts/approvals/<id>`. Demo SMTP dùng Mailpit profile `demo-mail`, workflow mặc định chưa active.
+
 Migration 008 thêm delivery.plan_version và unique theo phiên bản. Sửa/gửi lại đánh dấu lượt cũ cancelled, giữ nguyên delivery/history; worker chỉ claim phiên bản lịch hiện tại, không dùng lượt cũ để chặn bài của phiên bản mới.
 
 `npm run db:dev-accounts` tạo bốn tài khoản test công khai (admin/manager/editor/viewer) được ghi trong README, chỉ cho PostgreSQL localhost và không ở NODE_ENV=production. Không chạy tự động hoặc ghi đè user đã tồn tại; vô hiệu hóa/đổi mật khẩu test trước khi chia sẻ triển khai.
@@ -21,7 +23,7 @@ Migration 008 thêm delivery.plan_version và unique theo phiên bản. Sửa/g�
 - n8n self-hosted qua Docker Compose cho email duyệt bài/lịch chạy RPA; Playwright cho Dashboard screenshot/CSV, Robot Framework/SeleniumLibrary còn là mẫu cũ.
 - Swagger UI/OpenAPI 3, collection Postman và Node test runner.
 - Dùng Node.js 22.12+ theo Vite; máy kiểm tra dùng 22.20.0 và npm 11.13.0. Đồng bộ manifest và lockfile bằng npm.
-- UI gồm Dashboard, lịch, chat và các mục quản trị nội dung, thêm Workflow/RPA và Liên kết tài khoản. Dùng sidebar/hash trong `FE/src/App.jsx` làm nguồn chuẩn cho tên và số màn hình hiện tại.
+- UI gồm Dashboard, lịch, chat, AI Analysis theo kỳ và các mục quản trị nội dung, thêm Workflow/RPA và Liên kết tài khoản. Dùng sidebar/hash trong `FE/src/App.jsx` làm nguồn chuẩn cho tên và số màn hình hiện tại.
 - Facebook Page có tích hợp thật; analytics, chat, SERP và các adapter mạng xã hội khác chưa được tích hợp. Không giả vờ OAuth/đồng bộ/tự đăng đã hoạt động. Đăng nhập yêu cầu PostgreSQL. localStorage cũ chỉ được nhập vào DB khi người dùng chọn nhập; không tự chuyển nguồn hay xóa dữ liệu.
 
 ## Hướng dẫn tác nhân và nguồn chuẩn
@@ -39,10 +41,12 @@ Migration 008 thêm delivery.plan_version và unique theo phiên bản. Sửa/g�
 - FE/src/pages.jsx: quản trị, phân tích, lịch, inbox, SEO và workflow.
 - FE/src/Composer.jsx: nhiều kênh, preview, ảnh/bình luận, nháp/duyệt/lịch và Facebook có xác nhận.
 - FE/src/ApprovalBoard.jsx: bảng duyệt bài, lọc/xuất CSV, duyệt/từ chối và lý do.
+- FE/src/AiAnalysis.jsx: nhập số liệu theo kỳ cho Facebook Page, preview dữ liệu gửi AI, KPI/facts, báo cáo và lịch sử.
 - FE/src/styles.css: token, responsive và reduced motion. FE/public/brand.svg: logo.
 - FE/public/domain.js: seed/helper/schema chung cho browser và Node. Script load trước React, export CommonJS cho server/test.
 - BE/server.js: Express, static FE/dist, API Facebook, Swagger và download mẫu. Đọc BE/.env theo __dirname.
 - BE/server/workspace.js: router/repository PostgreSQL, SQL parameterized, version check atomically.
+- BE/server/ai-analysis.js, ai-metrics.js, ai-provider.js: API phân tích, tính KPI/facts và adapter Gemini ở backend; dữ liệu nhập/lịch sử nằm ở migration 012.
 - BE/api/: OpenAPI/Postman. BE/test/: test HTTP/repository; FE/test/: test domain.
 - BE/compose.yaml, BE/db/init.sql: PostgreSQL/n8n local; BE/compose.n8n-host.yaml: chỉ n8n khi PostgreSQL trên host đã chiếm cổng 5432. BE/workflows/: workflow n8n không active. BE/server/automation.js, rpa-worker.js và BE/rpa/output/: RPA Playwright, output gitignored; BE/rpa/ còn có Robot mẫu.
 - BE/.env.example: cấu hình mẫu; BE/.env, node_modules, FE/dist, cache/output không commit.
@@ -59,6 +63,7 @@ Migration 008 thêm delivery.plan_version và unique theo phiên bản. Sửa/g�
 | Đăng nhập/phân quyền và dữ liệu | `BE/server/auth.js`, `BE/server/resources.js`, `BE/server/data-store.js`                           | `BE/db/migrations/`, `BE/prisma/schema.prisma`, `DATABASE-ARCHITECTURE.md` |
 | Facebook/Instagram              | `BE/server/social.js`, `BE/server/publish-receipts.js`, `FE/src/Social.jsx`, `FE/src/Composer.jsx` | `BE/test/social.test.cjs`, OpenAPI và README                               |
 | Automation/RPA                  | `BE/server/automation.js`, `BE/server/rpa-worker.js`, `BE/workflows/`                              | README và `BE/rpa/`                                                        |
+| AI Analysis Page                | `FE/src/AiAnalysis.jsx`, `BE/server/ai-analysis.js`, `BE/server/ai-metrics.js`                     | `BE/server/ai-provider.js`, migration 012, `eval/ai-analysis/`, README     |
 | Hợp đồng API                    | `BE/api/openapi.json`                                                                              | `BE/api/omni-studio.postman_collection.json`, `BE/test/`                   |
 
 ## Lệnh thực tế
@@ -108,9 +113,10 @@ Phân biệt kiểm tra theo script thực tế: `npm run check` chỉ dùng `no
 - Thêm field/collection phải cập nhật seed/schema, form, OpenAPI và test đồng bộ. Không sửa integrity lockfile thủ công.
 - POST /api/publish/facebook: noiDungBaiViet string; hỗ trợ Facebook và Instagram Professional đã liên kết. Thành công trả providerPostId; Facebook giữ facebookPostId tương thích. Instagram đăng ngay ảnh JPG ≤1 MB qua container/media_publish; local dùng Cloudflare Quick Tunnel tạm nếu cloudflared có sẵn, triển khai dùng kho S3-compatible công khai cấu hình bằng INSTAGRAM_MEDIA_*. Tunnel chỉ mở endpoint ảnh ngẫu nhiên, không dùng sản xuất. Rỗng/sai kiểu 400, thiếu media hosting 503, provider error 502, token lỗi 401, thiếu quyền 403. Không tự retry khi kết quả Instagram chưa rõ. Axios timeout 15 giây. GRAPH_API_VERSION mặc định v21.0 giữ từ mã gốc; chỉ đổi sau khi kiểm tra tương thích.
 - Không đưa token/connection string/lỗi provider nhạy cảm vào response/log; không commit .env.
+- AI Analysis chỉ nhận số liệu theo kỳ do người dùng nhập cho Facebook Page, tối đa 30 bài. KPI/fact do backend tính; text bài là dữ liệu không tin cậy. Gemini chỉ giải thích fact, không chạy tool hay tự sửa lịch/ngân sách/đăng bài. Không gửi token/cookie/email/khách hàng. Mặc định chỉ cho phép `gemini-2.5-flash-lite` với key project Free Tier chưa liên kết billing; giới hạn lượt/ngày ở backend env. Muốn dùng Paid Tier phải chủ động tắt `AI_GEMINI_FREE_TIER_ONLY` và cấu hình trần ngân sách/đơn giá. Test mock, không gọi provider thật khi chưa được phép. Dữ liệu `eval/ai-analysis/` là tổng hợp, không tự seed vào workspace thật.
 - Test Facebook mock Axios và credential giả; không đăng thật. UI đăng thật qua nút riêng + xác nhận; văn bản và ảnh tùy chọn lên Page đã chọn; không tự đăng khi test.
 - Workflow n8n mẫu không active, không có node publish. Không bật workflow/gọi dịch vụ ngoài để kiểm tra UI. Robot chỉ mở/đọc UI.
-- Migration 009–010 thêm email outbox, RPA run và loại địa chỉ `.test`; không sửa migration đã áp dụng. Workflow email cần PostgreSQL credential trỏ database ứng dụng và SMTP credential do người dùng cấu hình; không bật hoặc gửi email thật để test khi chưa có credential. Worker RPA riêng đọc UI/CSV và không đăng Facebook. Email/tài khoản trong database cục bộ có thể thay đổi; kiểm tra database và README hiện tại trước khi hướng dẫn đăng nhập. Script seed cho database dev mới khai báo tài khoản mẫu trong `BE/server/dev-accounts.js`.
+- Migration 009–010 thêm email outbox, RPA run và loại địa chỉ `.test`; migration 013 nối RPA đọc bài duyệt theo phiên bản. Không sửa migration đã áp dụng. Workflow email cần PostgreSQL credential trỏ database ứng dụng và SMTP credential do người dùng cấu hình; không bật hoặc gửi email thật để test khi chưa có credential. Worker RPA riêng đọc UI/CSV và không đăng Facebook. `RPA_BASE_URL` là origin loopback của WebApp, tài khoản RPA nên là Viewer. Email/tài khoản trong database cục bộ có thể thay đổi; kiểm tra database và README hiện tại trước khi hướng dẫn đăng nhập. Script seed cho database dev mới khai báo tài khoản mẫu trong `BE/server/dev-accounts.js`.
 - Không xóa PostgreSQL volume để sửa khởi động. BE/db/init.sql chỉ chạy khi volume khởi tạo lần đầu.
 
 ## Skill và định dạng

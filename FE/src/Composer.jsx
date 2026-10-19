@@ -14,6 +14,7 @@ import {
     MessageCircle
 } from 'lucide-react';
 import { useWorkspace } from './App.jsx';
+import { authRequest } from './Auth.jsx';
 import { Avatar, Button, Modal, Platform } from './components.jsx';
 import { socialRequest } from './Social.jsx';
 import {
@@ -55,6 +56,7 @@ export default function Composer({ post, onClose }) {
         time: '09:00',
         timezone: 'Asia/Ho_Chi_Minh',
         campaign: '',
+        tag: '',
         engagement: 0,
         reach: 0,
         comments: [],
@@ -65,6 +67,19 @@ export default function Composer({ post, onClose }) {
         accountIds: post?.accountIds || (initial ? [initial.id] : [])
     });
     const selected = accounts.filter((a) => form.accountIds.includes(a.id));
+    const [knownTags, setKnownTags] = useState([]);
+    const usedTags = [
+        ...new Map(
+            [
+                ...knownTags.map((item) => item.tag || item.name),
+                ...(data.tags || []).map((item) => item.tag || item.name),
+                ...data.posts.map((item) => item.tag)
+            ]
+                .map((tag) => String(tag || '').trim())
+                .filter(Boolean)
+                .map((tag) => [tag.toLocaleLowerCase('vi'), tag])
+        ).values()
+    ].slice(0, 6);
     const approvedTarget = selected.find((a) => a.id === form.serverDeliveryAccountId);
     const canPublishApprovedDelivery =
         form.serverPlanId &&
@@ -100,6 +115,13 @@ export default function Composer({ post, onClose }) {
     const busy = publishing || saving || serverSaving || busyMedia;
     useEffect(() => {
         mounted.current = true;
+        authRequest('/api/records/tags')
+            .then((result) => {
+                if (mounted.current) setKnownTags(result.items || []);
+            })
+            .catch(() => {
+                // Existing post tags remain available when the tag resource is offline.
+            });
         socialRequest('/api/publishing/status')
             .then((s) => {
                 if (mounted.current) setServer({ ...s, loading: false });
@@ -314,7 +336,20 @@ export default function Composer({ post, onClose }) {
                         return;
                     }
                 }
-                window.dispatchEvent(new Event('publishing-plans-changed'));
+                window.dispatchEvent(
+                    new CustomEvent('publishing-plans-changed', {
+                        detail: {
+                            message:
+                                status === 'Đã lên lịch'
+                                    ? form.serverPlanId
+                                        ? 'Đã cập nhật lịch đăng.'
+                                        : 'Đã lưu lịch đăng.'
+                                    : status === 'Chờ duyệt'
+                                      ? 'Đã gửi duyệt bài đăng.'
+                                      : 'Đã lưu bản nháp.'
+                        }
+                    })
+                );
                 onClose();
             } catch (e) {
                 setError(e.message);
@@ -529,7 +564,7 @@ export default function Composer({ post, onClose }) {
                                     key={a.id}
                                     className={`studio-account ${form.accountIds.includes(a.id) ? 'selected' : ''}`}
                                     aria-pressed={form.accountIds.includes(a.id)}
-                                    aria-label={`${a.name} · ${a.platform}`}
+                                    aria-label={`${form.accountIds.includes(a.id) ? 'Bỏ chọn' : 'Chọn'} ${a.name} · ${a.platform}`}
                                     title={`${a.name} · ${a.platform}`}
                                     onClick={() => toggle(a)}
                                 >
@@ -547,17 +582,6 @@ export default function Composer({ post, onClose }) {
                                 </button>
                             ))}
                         </div>
-                        {!!selected.length && (
-                            <div className="studio-selected-accounts">
-                                <span>Đang soạn cho</span>
-                                {selected.map((a) => (
-                                    <span key={a.id}>
-                                        <Platform name={a.platform} small />
-                                        {a.name}
-                                    </span>
-                                ))}
-                            </div>
-                        )}
                         {!accounts.length && (
                             <div className="composer-no-account">
                                 <p>
@@ -794,30 +818,6 @@ export default function Composer({ post, onClose }) {
                                         ))}
                                     </select>
                                 </label>
-                                <label>
-                                    Lặp lại
-                                    <select
-                                        value={form.repeat}
-                                        onChange={(e) => field('repeat', e.target.value)}
-                                    >
-                                        <option>Không lặp lại</option>
-                                        <option>Mỗi ngày</option>
-                                        <option>Mỗi tuần</option>
-                                    </select>
-                                </label>
-                                {form.repeat !== 'Không lặp lại' && (
-                                    <label>
-                                        Số lượt (tối đa 30)
-                                        <input
-                                            aria-label="Số lượt lặp"
-                                            type="number"
-                                            min={1}
-                                            max={30}
-                                            value={form.repeatCount}
-                                            onChange={(e) => field('repeatCount', e.target.value)}
-                                        />
-                                    </label>
-                                )}
                             </div>
                         </details>
                     </fieldset>
@@ -979,7 +979,9 @@ export default function Composer({ post, onClose }) {
             </div>
             <div className="composer-footer">
                 <fieldset disabled={busy || hasSent} className="schedule-fields">
-                    <label>
+                    <legend>Lịch đăng</legend>
+                    <label className="schedule-control">
+                        <span>Ngày</span>
                         <CalendarDays size={15} />
                         <input
                             aria-label="Ngày đăng"
@@ -988,7 +990,8 @@ export default function Composer({ post, onClose }) {
                             onChange={(e) => field('date', e.target.value)}
                         />
                     </label>
-                    <label>
+                    <label className="schedule-control">
+                        <span>Giờ</span>
                         <Clock3 size={15} />
                         <input
                             aria-label="Giờ đăng"
@@ -997,25 +1000,104 @@ export default function Composer({ post, onClose }) {
                             onChange={(e) => field('time', e.target.value)}
                         />
                     </label>
-                    <select
-                        aria-label="Múi giờ đăng"
-                        value={form.timezone}
-                        onChange={(e) => {
-                            const instant = utcTime(form.date, form.time, form.timezone);
-                            setForm((f) => ({
-                                ...f,
-                                ...displayTime(instant, e.target.value),
-                                timezone: e.target.value
-                            }));
-                            setDirty(true);
-                        }}
-                    >
-                        {Object.entries(zones).map(([z, o]) => (
-                            <option key={z} value={z}>
-                                GMT{o ? `+${o}` : ''}
-                            </option>
-                        ))}
-                    </select>
+                    <label className="schedule-control schedule-zone">
+                        <span>Múi giờ</span>
+                        <select
+                            aria-label="Múi giờ đăng"
+                            value={form.timezone}
+                            onChange={(e) => {
+                                const instant = utcTime(form.date, form.time, form.timezone);
+                                setForm((f) => ({
+                                    ...f,
+                                    ...displayTime(instant, e.target.value),
+                                    timezone: e.target.value
+                                }));
+                                setDirty(true);
+                            }}
+                        >
+                            {Object.entries(zones).map(([z, o]) => (
+                                <option key={z} value={z}>
+                                    GMT{o ? `+${o}` : ''}
+                                </option>
+                            ))}
+                        </select>
+                    </label>
+                    <label className="schedule-control schedule-repeat">
+                        <span>Lặp lại</span>
+                        <select
+                            value={form.repeat}
+                            onChange={(e) => field('repeat', e.target.value)}
+                        >
+                            <option>Không lặp lại</option>
+                            <option>Mỗi ngày</option>
+                            <option>Mỗi tuần</option>
+                        </select>
+                    </label>
+                    {form.repeat !== 'Không lặp lại' && (
+                        <label className="schedule-control schedule-count">
+                            <span>Số lượt</span>
+                            <input
+                                aria-label="Số lượt lặp (tối đa 30)"
+                                type="number"
+                                min={1}
+                                max={30}
+                                value={form.repeatCount}
+                                onChange={(e) => field('repeatCount', e.target.value)}
+                            />
+                        </label>
+                    )}
+                    <div className="studio-tag-picker schedule-control schedule-tag">
+                        <label htmlFor="composer-post-tag">Tag nội dung</label>
+                        <div className="studio-tag-input">
+                            <span aria-hidden="true">#</span>
+                            <input
+                                id="composer-post-tag"
+                                list="composer-used-tags"
+                                maxLength={50}
+                                value={form.tag || ''}
+                                onChange={(e) => field('tag', e.target.value)}
+                                placeholder="Tag mới"
+                                aria-describedby="composer-tag-help"
+                            />
+                            {form.tag && (
+                                <button
+                                    type="button"
+                                    aria-label="Xóa tag nội dung"
+                                    onClick={() => field('tag', '')}
+                                >
+                                    Xóa
+                                </button>
+                            )}
+                        </div>
+                        <datalist id="composer-used-tags">
+                            {usedTags.map((tag) => (
+                                <option value={tag} key={tag} />
+                            ))}
+                        </datalist>
+                        <span className="sr-only" id="composer-tag-help">
+                            Chọn tag đã dùng hoặc nhập tag mới. Tag chỉ giúp tìm lại kế hoạch và
+                            không được thêm vào bài đăng.
+                        </span>
+                        {!!usedTags.length && (
+                            <details className="studio-tag-suggestions">
+                                <summary aria-label="Chọn tag đã dùng">
+                                    <ChevronDown size={14} />
+                                </summary>
+                                <div role="group" aria-label="Tag đã dùng">
+                                    {usedTags.map((tag) => (
+                                        <button
+                                            type="button"
+                                            key={tag}
+                                            aria-pressed={form.tag === tag}
+                                            onClick={() => field('tag', tag)}
+                                        >
+                                            #{tag}
+                                        </button>
+                                    ))}
+                                </div>
+                            </details>
+                        )}
+                    </div>
                 </fieldset>
                 <div className="composer-buttons">
                     <Button

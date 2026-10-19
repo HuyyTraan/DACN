@@ -1,5 +1,5 @@
 {
-    "name": "Omni Studio · Approval email (configure SMTP before activation)",
+    "name": "Omni Studio · Approval RPA email (configure SMTP before activation)",
     "active": false,
     "nodes": [
         {
@@ -20,14 +20,36 @@
             }
         },
         {
-            "id": "claim",
-            "name": "Queue reminders and claim email",
+            "id": "queue",
+            "name": "Queue approval reads",
             "type": "n8n-nodes-base.postgres",
             "typeVersion": 2.5,
-            "position": [500, 300],
+            "position": [490, 300],
             "parameters": {
                 "operation": "executeQuery",
-                "query": "WITH reminders AS (INSERT INTO studio_automation_messages(plan_id,plan_version,recipient_user_id,recipient_email,kind) SELECT p.id,p.version,u.id,u.email,r.kind FROM publishing_plans p CROSS JOIN LATERAL (VALUES ('approval_due_soon',(p.payload->>'scheduledAt')::timestamptz<=now()+interval '3 hours'),('approval_overdue',p.updated_at<=now()-interval '2 days')) r(kind,due) JOIN studio_users u ON u.workspace_id=1 AND u.active AND u.role IN ('admin','manager') AND u.email !~* '\\.test$' WHERE p.status='pending' AND (p.payload->>'scheduledAt')::timestamptz>now() AND r.due ON CONFLICT DO NOTHING), stale AS (UPDATE studio_automation_messages m SET status='cancelled' WHERE m.status='queued' AND NOT EXISTS (SELECT 1 FROM publishing_plans p WHERE p.id=m.plan_id AND p.version=m.plan_version AND p.status='pending') RETURNING m.id), claimed AS (UPDATE studio_automation_messages m SET status='sending',claimed_at=now() WHERE m.id IN (SELECT q.id FROM studio_automation_messages q JOIN publishing_plans p ON p.id=q.plan_id AND p.version=q.plan_version AND p.status='pending' WHERE q.status='queued' AND q.recipient_email !~* '\\.test$' AND (p.payload->>'scheduledAt')::timestamptz>now() ORDER BY q.created_at FOR UPDATE OF q SKIP LOCKED LIMIT 20) RETURNING m.id,m.kind,m.recipient_email,m.plan_id) SELECT c.id,c.kind,c.recipient_email,c.plan_id,p.payload->>'name' AS plan_name,p.payload->>'scheduledAt' AS scheduled_at FROM claimed c JOIN publishing_plans p ON p.id=c.plan_id"
+                "query": "WITH reminders AS (\n    INSERT INTO studio_automation_messages(plan_id,plan_version,recipient_user_id,recipient_email,kind)\n    SELECT p.id,p.version,u.id,u.email,reminder.kind\n    FROM publishing_plans p\n    CROSS JOIN LATERAL (VALUES\n        ('approval_due_soon',(p.payload->>'scheduledAt')::timestamptz<=now()+interval '3 hours' AND p.updated_at<=now()-interval '1 hour'),\n        ('approval_overdue',p.updated_at<=now()-interval '2 days')\n    ) AS reminder(kind,due)\n    JOIN studio_users u ON u.workspace_id=1 AND u.active AND u.role IN ('admin','manager')\n      AND u.email !~* '\\.test$'\n    WHERE p.status='pending' AND (p.payload->>'scheduledAt')::timestamptz>now()\n      AND reminder.due\n    ON CONFLICT DO NOTHING RETURNING id\n), stale AS (\n    UPDATE studio_automation_messages m SET status='cancelled'\n    WHERE m.status='queued' AND NOT EXISTS (\n        SELECT 1 FROM publishing_plans p JOIN studio_users u ON u.id=m.recipient_user_id\n        WHERE p.id=m.plan_id AND p.version=m.plan_version AND p.status='pending'\n          AND (p.payload->>'scheduledAt')::timestamptz>now()\n          AND u.active AND u.role IN ('admin','manager') AND u.email=m.recipient_email\n          AND u.email !~* '\\.test$'\n    ) RETURNING m.id\n), jobs AS (\n    INSERT INTO studio_rpa_runs(kind,status,plan_id,plan_version)\n    SELECT DISTINCT 'approval_read','queued',p.id,p.version\n    FROM studio_automation_messages m JOIN publishing_plans p\n      ON p.id=m.plan_id AND p.version=m.plan_version\n    JOIN studio_users u ON u.id=m.recipient_user_id\n    WHERE m.status='queued' AND p.status='pending'\n      AND (p.payload->>'scheduledAt')::timestamptz>now()\n      AND u.active AND u.role IN ('admin','manager') AND u.email=m.recipient_email\n      AND u.email !~* '\\.test$'\n    ON CONFLICT DO NOTHING RETURNING id\n) SELECT (SELECT count(*)::int FROM jobs) AS jobs_queued,\n         (SELECT count(*)::int FROM stale) AS stale_cancelled"
+            }
+        },
+        {
+            "id": "claim",
+            "name": "Claim ready notifications",
+            "type": "n8n-nodes-base.postgres",
+            "typeVersion": 2.5,
+            "position": [740, 300],
+            "parameters": {
+                "operation": "executeQuery",
+                "query": "WITH claimed AS (\n    UPDATE studio_automation_messages m SET status='sending',claimed_at=now()\n    WHERE m.id IN (\n        SELECT q.id FROM studio_automation_messages q\n        JOIN publishing_plans p ON p.id=q.plan_id AND p.version=q.plan_version\n        JOIN studio_users u ON u.id=q.recipient_user_id\n        JOIN studio_rpa_runs r ON r.plan_id=p.id AND r.plan_version=p.version\n          AND r.kind='approval_read' AND r.status='success'\n        WHERE q.status='queued' AND p.status='pending'\n          AND (p.payload->>'scheduledAt')::timestamptz>now()\n          AND u.active AND u.role IN ('admin','manager') AND u.email=q.recipient_email\n          AND u.email !~* '\\.test$'\n          AND r.result->>'planId'=p.id::text\n          AND (r.result->>'planVersion')::integer=p.version\n        ORDER BY q.created_at FOR UPDATE OF q SKIP LOCKED LIMIT 20\n    ) RETURNING m.id\n) SELECT id FROM claimed"
+            }
+        },
+        {
+            "id": "preflight",
+            "name": "Preflight current revision",
+            "type": "n8n-nodes-base.postgres",
+            "typeVersion": 2.5,
+            "position": [990, 300],
+            "parameters": {
+                "operation": "executeQuery",
+                "query": "WITH invalid AS (\n    UPDATE studio_automation_messages m SET status='cancelled'\n    WHERE m.id='{{ $('Claim ready notifications').item.json.id }}'::uuid\n      AND m.status='sending'\n      AND NOT EXISTS (\n        SELECT 1 FROM publishing_plans p JOIN studio_users u ON u.id=m.recipient_user_id\n        JOIN studio_rpa_runs r ON r.plan_id=p.id AND r.plan_version=p.version\n          AND r.kind='approval_read' AND r.status='success'\n        WHERE p.id=m.plan_id AND p.version=m.plan_version AND p.status='pending'\n          AND (p.payload->>'scheduledAt')::timestamptz>now()\n          AND u.active AND u.role IN ('admin','manager') AND u.email=m.recipient_email\n          AND u.email !~* '\\.test$'\n          AND r.result->>'planId'=p.id::text\n          AND (r.result->>'planVersion')::integer=p.version\n      ) RETURNING m.id\n) SELECT m.id,m.kind,m.recipient_email,r.result->>'name' AS name,\n         r.result->>'creator' AS creator,r.result->>'content' AS content,\n         r.result->>'pages' AS pages,r.result->>'scheduledAt' AS scheduled_at,\n         r.read_at,m.plan_id,m.plan_version\n  FROM studio_automation_messages m\n  JOIN publishing_plans p ON p.id=m.plan_id AND p.version=m.plan_version\n  JOIN studio_users u ON u.id=m.recipient_user_id\n  JOIN studio_rpa_runs r ON r.plan_id=p.id AND r.plan_version=p.version\n    AND r.kind='approval_read' AND r.status='success'\n WHERE m.id='{{ $('Claim ready notifications').item.json.id }}'::uuid\n   AND m.status='sending' AND p.status='pending'\n   AND (p.payload->>'scheduledAt')::timestamptz>now()\n   AND u.active AND u.role IN ('admin','manager') AND u.email=m.recipient_email\n   AND u.email !~* '\\.test$'\n   AND r.result->>'planId'=p.id::text\n   AND (r.result->>'planVersion')::integer=p.version"
             }
         },
         {
@@ -35,13 +57,14 @@
             "name": "Send approval email",
             "type": "n8n-nodes-base.emailSend",
             "typeVersion": 2.1,
-            "position": [760, 300],
+            "retryOnFail": false,
+            "position": [1240, 300],
             "parameters": {
                 "fromEmail": "Omni Studio <configure-smtp-sender@example.com>",
                 "toEmail": "={{ $json.recipient_email }}",
-                "subject": "={{ $json.kind === 'approval_requested' ? 'Bài viết cần duyệt: ' + $json.plan_name : 'Nhắc duyệt bài viết: ' + $json.plan_name }}",
-                "emailType": "text",
-                "text": "={{ 'Bài viết: ' + $json.plan_name + '\nThời gian dự kiến (UTC): ' + $json.scheduled_at + '\nMở Omni Studio → Lịch nội dung → Chưa duyệt để xem và duyệt.\nMã kế hoạch: ' + $json.plan_id }}"
+                "subject": "={{ ($json.kind === 'approval_requested' ? 'Bài viết cần duyệt: ' : 'Nhắc duyệt bài viết: ') + String($json.name).replace(/[\\r\\n]+/g, ' ') }}",
+                "emailFormat": "text",
+                "text": "={{ 'Bài viết: ' + $json.name + '\\nID / phiên bản: ' + $json.plan_id + ' / ' + $json.plan_version + '\\nNgười gửi: ' + $json.creator + '\\nNội dung:\\n' + $json.content + '\\nPage: ' + $json.pages + '\\nGiờ đăng dự kiến (giờ Việt Nam): ' + $json.scheduled_at + '\\nRPA đọc lúc (UTC): ' + $json.read_at + '\\nMở bài trong Omni Studio: http://localhost:5173/#posts/approvals/' + $json.plan_id + '\\nĐăng nhập bằng tài khoản Admin/Manager để tự duyệt hoặc từ chối.' }}"
             }
         },
         {
@@ -49,10 +72,10 @@
             "name": "Mark email sent",
             "type": "n8n-nodes-base.postgres",
             "typeVersion": 2.5,
-            "position": [1020, 300],
+            "position": [1490, 300],
             "parameters": {
                 "operation": "executeQuery",
-                "query": "UPDATE studio_automation_messages SET status='sent',sent_at=now() WHERE id='{{ $('Queue reminders and claim email').item.json.id }}'::uuid AND status='sending' RETURNING id"
+                "query": "UPDATE studio_automation_messages SET status='sent',sent_at=now()\nWHERE id='{{ $('Preflight current revision').item.json.id }}'::uuid AND status='sending'\nRETURNING id"
             }
         }
     ],
@@ -61,14 +84,36 @@
             "main": [
                 [
                     {
-                        "node": "Queue reminders and claim email",
+                        "node": "Queue approval reads",
                         "type": "main",
                         "index": 0
                     }
                 ]
             ]
         },
-        "Queue reminders and claim email": {
+        "Queue approval reads": {
+            "main": [
+                [
+                    {
+                        "node": "Claim ready notifications",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Claim ready notifications": {
+            "main": [
+                [
+                    {
+                        "node": "Preflight current revision",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Preflight current revision": {
             "main": [
                 [
                     {

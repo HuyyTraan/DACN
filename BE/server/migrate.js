@@ -23,13 +23,19 @@ async function migrate() {
                 .filter((n) => n.endsWith('.sql'))
                 .sort()) {
                 const sql = await fs.readFile(path.join(folder, name), 'utf8');
-                const checksum = crypto.createHash('sha256').update(sql).digest('hex');
+                // Keep migration identity stable across Git's LF/CRLF checkout conversions.
+                const normalizedSql = sql.replace(/\r\n?/g, '\n');
+                const checksum = crypto.createHash('sha256').update(normalizedSql).digest('hex');
+                const legacyCrLfChecksum = crypto
+                    .createHash('sha256')
+                    .update(normalizedSql.replace(/\n/g, '\r\n'))
+                    .digest('hex');
                 const old = (
                     await db.query('SELECT checksum FROM studio_migrations WHERE name=$1', [name])
                 ).rows[0];
                 if (old) {
-                    if (old.checksum !== checksum)
-                        throw new Error('Migration đã áp dụng bị thay đổi.');
+                    if (old.checksum !== checksum && old.checksum !== legacyCrLfChecksum)
+                        throw new Error('Migration đã áp dụng bị thay đổi: ' + name);
                     continue;
                 }
                 await db.query('BEGIN');

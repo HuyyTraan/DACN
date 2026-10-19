@@ -49,7 +49,7 @@ Chạy npm run db:migrate và npm run db:generate trước khi khởi động b�
 | npm run db:validate   | Kiểm tra Prisma schema                                   |
 | npm run test:database | Test PostgreSQL trong schema riêng; provider mock        |
 
-Chi tiết 35 models, ánh xạ màn hình/API, vai trò và rollback: [DATABASE-ARCHITECTURE.md](DATABASE-ARCHITECTURE.md). Prisma CHECK/trigger/partial index được giữ trong SQL; không dùng Prisma reset/db push trên database hiện có. Instagram hiện chỉ có adapter đăng ảnh ngay; đọc/lịch và các nền tảng khác, SERP, gửi chat và thực thi n8n/RPA cần adapter/config riêng. Ghi dữ liệu nội bộ không có nghĩa đã chạy hoặc đồng bộ dịch vụ.
+Chi tiết các model, ánh xạ màn hình/API, vai trò và rollback: [DATABASE-ARCHITECTURE.md](DATABASE-ARCHITECTURE.md). Prisma CHECK/trigger/partial index được giữ trong SQL; không dùng Prisma reset/db push trên database hiện có. Instagram hiện chỉ có adapter đăng ảnh ngay; đọc/lịch và các nền tảng khác, SERP, gửi chat và thực thi n8n/RPA cần adapter/config riêng. Ghi dữ liệu nội bộ không có nghĩa đã chạy hoặc đồng bộ dịch vụ.
 
 ## Techstack
 
@@ -148,26 +148,64 @@ Chế độ này dùng một tiến trình Express cho cả API và file tĩnh R
 
 ## Màn hình
 
-| Màn hình                | Thao tác prototype                                                              |
-| ----------------------- | ------------------------------------------------------------------------------- |
-| Tổng quan               | KPI, biểu đồ, ngân sách, mở chiến dịch/bài sắp đăng                             |
-| Lịch nội dung           | Tuần/tháng, chuyển kỳ, lọc kênh/trạng thái, tạo bài từ ô ngày                   |
-| Hộp thư đa kênh         | Tìm/lọc, xem khách hàng, lưu phản hồi demo, đánh dấu xử lý                      |
-| Cài đặt tài khoản       | Thêm/sửa/xóa bản ghi quản trị                                                   |
-| Quản lý kênh            | Bảng/thẻ, thêm/sửa/xóa kênh demo                                                |
-| Hiệu suất & ngân sách   | Chọn kỳ/kênh, biểu đồ, ngân sách chiến dịch, CSV                                |
-| Thống kê traffic kênh   | Chọn kỳ/kênh, nguồn truy cập, bảng/CSV                                          |
-| Quản lý chiến dịch      | Thêm/sửa/xóa, lọc trạng thái, ngân sách và tiến độ                              |
-| Quản lý bài viết        | Nhiều kênh, preview, ảnh, bình luận, nháp/duyệt/lịch                            |
-| Traffic khách hàng      | Khách hàng, nguồn, truy cập, phân loại lead                                     |
-| Quản lý quảng cáo       | Bản ghi quảng cáo, ngân sách, CTR và lượt nhấp demo                             |
-| Thông tin kênh bài viết | Tiếp cận, tương tác, chi tiết bài đã đăng                                       |
-| Thứ hạng từ khóa Omni   | Theo dõi từ khóa và tăng/giảm hạng demo                                         |
-| gCompare                | So sánh đối thủ, traffic và điểm hiển thị demo                                  |
-| gCheck                  | Form, loading, kết quả mô phỏng và lịch sử                                      |
-| Workflow & RPA          | Theo dõi email duyệt bài, chạy Playwright chụp Dashboard/xuất CSV; cấu hình n8n |
+| Màn hình                | Thao tác prototype                                                                             |
+| ----------------------- | ---------------------------------------------------------------------------------------------- |
+| Tổng quan               | Hàng chờ duyệt, lịch 7 ngày, lượt đăng, kết nối tài khoản, bản ghi workspace và metrics đã lưu |
+| AI Analysis             | Nhập chỉ số Facebook Page theo kỳ, KPI/facts, yêu cầu Gemini, xem căn cứ và lịch sử            |
+| Lịch nội dung           | Tuần/tháng, chuyển kỳ, lọc kênh/trạng thái, tạo bài từ ô ngày                                  |
+| Hộp thư đa kênh         | Tìm/lọc, xem khách hàng, lưu phản hồi demo, đánh dấu xử lý                                     |
+| Cài đặt tài khoản       | Thêm/sửa/xóa bản ghi quản trị                                                                  |
+| Quản lý kênh            | Bảng/thẻ, thêm/sửa/xóa kênh demo                                                               |
+| Hiệu suất & ngân sách   | Chọn kỳ/kênh, biểu đồ, ngân sách chiến dịch, CSV                                               |
+| Thống kê traffic kênh   | Chọn kỳ/kênh, nguồn truy cập, bảng/CSV                                                         |
+| Quản lý chiến dịch      | Thêm/sửa/xóa, lọc trạng thái, ngân sách và tiến độ                                             |
+| Quản lý bài viết        | Nhiều kênh, preview, ảnh, bình luận, nháp/duyệt/lịch                                           |
+| Traffic khách hàng      | Khách hàng, nguồn, truy cập, phân loại lead                                                    |
+| Quản lý quảng cáo       | Bản ghi quảng cáo, ngân sách, CTR và lượt nhấp demo                                            |
+| Thông tin kênh bài viết | Tiếp cận, tương tác, chi tiết bài đã đăng                                                      |
+| Thứ hạng từ khóa Omni   | Theo dõi từ khóa và tăng/giảm hạng demo                                                        |
+| gCompare                | So sánh đối thủ, traffic và điểm hiển thị demo                                                 |
+| gCheck                  | Form, loading, kết quả mô phỏng và lịch sử                                                     |
+| Workflow & RPA          | Theo dõi email duyệt bài, chạy Playwright chụp Dashboard/xuất CSV; cấu hình n8n                |
 
 Bảng hỗ trợ tìm kiếm, lọc kênh, sort, phân trang và CSV. Có xác nhận xóa, loading/empty/error, modal native hỗ trợ Escape/focus, mobile sidebar thu gọn và inbox một cột. Bảng/lịch cuộn trong vùng riêng khi hẹp.
+
+Trang **Tổng quan** đọc `GET /api/dashboard?period=week|month` để hiển thị hàng duyệt, delivery sắp đăng/đã đăng và metrics được ghi nhận; danh tính kết nối đến từ Social API, còn số bản ghi chiến dịch/quảng cáo/khách hàng đến từ workspace. Lượt đăng chỉ tính bài do Omni Studio xử lý, không bao gồm bài đăng trực tiếp trên Page. Reach, clicks và spend là bản ghi nội bộ, chưa tự đồng bộ insight từ Meta. Trang tự làm mới sau 30 giây và khi lịch thay đổi; thiếu PostgreSQL hoặc API lỗi sẽ báo rõ. Xem [bản đồ dữ liệu Tổng quan](DATABASE-ARCHITECTURE.md#tổng-quan-vận-hành).
+
+## AI Analysis MVP (Facebook Page)
+
+**AI Analysis** trong sidebar phân tích tối đa 30 bài của **một Facebook Page đã liên kết** trong kỳ người dùng chọn. Số liệu được người dùng nhập tay hoặc tải CSV theo mẫu; ứng dụng chưa tự lấy Facebook Insights. Chọn nguồn `manual`, `csv` hoặc `demo` và ghi tên nguồn để đối chiếu. Bộ CSV tại [eval/ai-analysis](eval/ai-analysis/README.md) là dữ liệu **tổng hợp cho test/demo**, không phải số liệu Page thật.
+
+CSV dùng UTF-8, header `providerPostId,periodStart,periodEnd,timezone,reach,impressions,interactions,linkClicks,text`. Mỗi hàng là một bài trong đúng kỳ đã chọn. `reach`, `impressions` và `interactions` là số đếm không âm của kỳ; `linkClicks` có thể trống. `interactions` nghĩa là tổng reaction, comment và share; `linkClicks` là lượt nhấp liên kết cùng kỳ. Snapshot lifetime/cumulative không hợp lệ. Trùng Page + post + kỳ hoặc kỳ chồng lấn của cùng bài bị từ chối. Tổng reach theo bài **không phải** unique reach của Page. Backend tính `interactions / reach × 100` và `linkClicks / impressions × 100`; mẫu số thiếu/0 cho kết quả `null` kèm lý do. Không suy ra ROI, ROAS hoặc CPL từ các cột này. Phạm vi báo cáo là **các bài đã chọn**, không tự nhận là toàn Page.
+
+Luồng sử dụng: đăng nhập Admin/Manager, mở AI Analysis, chọn Page/kỳ và xem trước hàng CSV hoặc nhập tay; sửa lỗi trước khi lưu batch. Xem KPI/fact và vùng xem trước đúng dữ liệu sẽ rời server tới Gemini, rồi bấm **Phân tích bằng AI**. AI chỉ giải thích facts bằng tiếng Việt và đề xuất tối đa 3 thử nghiệm; từng nhận xét mở được fact ID/căn cứ. Danh sách lịch sử mở lại báo cáo đã lưu; có xuất CSV và in từ trình duyệt. Đổi Page/kỳ hoặc filter không tự gọi AI. Editor/Viewer được xem lịch sử nhưng không tạo yêu cầu có chi phí. AI không sửa ngân sách, lịch đăng hoặc bài viết. Nếu provider lỗi, KPI đã tính vẫn xem được và UI báo lỗi thật.
+
+Trên database dev được phép cập nhật, chạy migration 012 và generate Prisma Client trước khi mở AI Analysis:
+
+```powershell
+npm run db:migrate
+npm run db:generate
+```
+
+**Không chạy migration chỉ để kiểm tra trên database người dùng**; `npm run test:database` dùng schema tạm riêng. Điền các biến dưới đây trong `BE/.env` riêng tư, khởi động lại backend. Không đưa API key vào biến `VITE_`, workspace, CSV hoặc Git.
+
+```dotenv
+AI_GEMINI_API_KEY=
+AI_GEMINI_MODEL=gemini-2.5-flash-lite
+AI_GEMINI_FREE_TIER_ONLY=true
+AI_DAILY_REQUEST_LIMIT=10
+AI_MAX_INPUT_TOKENS=200000
+AI_MAX_OUTPUT_TOKENS=1200
+AI_TIMEOUT_MS=20000
+```
+
+Mặc định backend chỉ cho phép `gemini-2.5-flash-lite`, model có input/output miễn phí trong [Gemini API Free Tier](https://ai.google.dev/gemini-api/docs/pricing) và [hỗ trợ structured output](https://ai.google.dev/gemini-api/docs/models/gemini-2.5-flash-lite). Tạo API key bằng **project có Billing Tier = Free**, không liên kết tài khoản thanh toán; kiểm tra trạng thái này trong [AI Studio](https://ai.google.dev/gemini-api/docs/billing) trước khi điền key. Backend không thể tự xác minh tier của project chỉ từ API key: `AI_GEMINI_FREE_TIER_ONLY=true` khóa model và bỏ yêu cầu đơn giá, nhưng không tự biến key Paid Tier thành miễn phí. Quota thực tế do Google quyết định; xem trong AI Studio. Free Tier cho phép Google dùng nội dung gửi lên để cải thiện sản phẩm, nên chỉ gửi dữ liệu mẫu hoặc dữ liệu được phép chia sẻ.
+
+`AI_MAX_INPUT_TOKENS` dùng số byte UTF-8 như một cận trên thận trọng cho token đầu vào; giảm giá trị này có thể từ chối báo cáo nhiều bài/text dài. Hạn mức nội bộ mặc định là 10 yêu cầu/ngày cho workspace, cache theo snapshot và version để tránh gọi lại không cần thiết. Trong chế độ Free Tier, báo cáo lưu usage token nhưng chi phí VND thực tế là `null` vì ứng dụng không kiểm chứng billing; không cần cấu hình ngân sách hoặc đơn giá. Không có key thì KPI vẫn xem được, AI báo chưa cấu hình. Test tự động dùng provider mock, không gọi Gemini thật.
+
+Chỉ khi chủ động dùng Paid Tier: đặt `AI_GEMINI_FREE_TIER_ONLY=false`, chọn `AI_GEMINI_MODEL` hỗ trợ structured output, và khai báo `AI_DAILY_BUDGET_VND`, `AI_INPUT_PRICE_VND_PER_MILLION_TOKENS`, `AI_OUTPUT_PRICE_VND_PER_MILLION_TOKENS` theo [giá hiện hành](https://ai.google.dev/gemini-api/docs/pricing) và tỷ giá áp dụng. Backend khi đó mới cho gọi sau khi có ngân sách/đơn giá dương; timeout vẫn có thể phát sinh chi phí và usage không rõ được giữ `null`.
+
+Demo an toàn: dùng một Page thử đã liên kết, chọn một CSV tổng hợp `V01` với nguồn `demo`, kiểm tra preview và KPI, mở vùng dữ liệu gửi AI; chỉ bấm phân tích thật sau khi đã kiểm tra key thuộc project Free Tier. Sau đó mở căn cứ từng nhận xét, lịch sử, CSV/in; thử `V04` để xem mẫu số 0 và tắt provider để xem lỗi mà KPI vẫn còn. Không cần bật publishing worker, gửi email hoặc đăng bài.
 
 ## PostgreSQL và n8n
 
@@ -206,7 +244,7 @@ Compose gốc `BE/compose.yaml` dành cho máy **chưa có PostgreSQL** và mu�
 
 #### 2. Chuẩn bị database và người nhận
 
-Chạy `npm run db:migrate` để thêm migration 009–011. Khi Editor gửi bài chờ duyệt, PostgreSQL xếp một email cho mỗi Admin/Manager đang hoạt động có địa chỉ thật; địa chỉ `.test` bị loại. n8n có thể nhắc trước giờ hẹn 3 giờ và khi chờ duyệt quá 2 ngày, miễn bài vẫn `pending` và chưa quá giờ. Duyệt bài vẫn là thao tác của Admin/Manager; email và RPA không tự duyệt hay tự đăng Facebook. Trạng thái email **Chờ gửi / Đang gửi / Đã gửi** hiển thị ở **Workflow & RPA**.
+Chạy `npm run db:migrate` để thêm migration 013 (cùng các migration trước đó nếu chưa áp dụng). Khi Editor gửi bài chờ duyệt, PostgreSQL xếp một email cho mỗi Admin/Manager đang hoạt động có địa chỉ thật; địa chỉ `.test` bị loại. Workflow n8n tạo một job `approval_read` theo ID/phiên bản bài. Worker Playwright đăng nhập WebApp, mở **Bài viết → Duyệt bài → Chưa duyệt → Xem chi tiết** và lưu tên, người gửi, nội dung, Page, giờ dự kiến cùng thời điểm đọc vào `studio_rpa_runs`. n8n chỉ gửi email sau khi job thành công và bài vẫn `pending` ở đúng phiên bản, giờ đăng còn tương lai và người nhận còn quyền. Nhắc gần giờ đăng chỉ xếp sau khi bài đã chờ ít nhất một giờ, để tránh email thứ hai ngay khi gửi duyệt. Trạng thái email và job xem tại **Workflow & RPA**. Duyệt/từ chối vẫn là thao tác của Admin/Manager trên WebApp; RPA không bấm quyết định hoặc đăng Facebook.
 
 Trên database cục bộ hiện tại, Admin nhận thư là `khaipham111005@gmail.com`; dev khác phải đặt email thật cho Admin/Manager của database họ. Email của tài khoản quản trị n8n **không** quyết định người nhận. Kiểm tra trong Omni Studio → **Thành viên & phân quyền** trước khi bật gửi thư.
 
@@ -219,19 +257,21 @@ Trong n8n → **Credentials** (hoặc mở node rồi chọn **Create new creden
 
 Nếu dùng Gmail làm **địa chỉ gửi**, tạo Google App Password sau khi bật xác minh hai bước, rồi nhập mật khẩu ứng dụng đó vào ô Password của SMTP credential; không dùng mật khẩu đăng nhập Gmail thông thường. Gmail SMTP: Host `smtp.gmail.com`, Port `465`, bật SSL/TLS; User là địa chỉ Gmail gửi. Google chỉ hiển thị App Password lúc tạo; nếu chưa lưu thì tạo cái mới. Với SMTP nhà cung cấp khác, dùng thông số chính thức của nhà cung cấp. Không đưa mật khẩu, App Password hay `DATABASE_URL` vào README, Git, ảnh chụp hoặc chat. Xem [n8n Send Email credential](https://docs.n8n.io/integrations/builtin/credentials/send-email/) và [Google App Password](https://support.google.com/accounts/answer/185833?hl=en).
 
-#### 4. Thử SMTP riêng, rồi bật workflow email
+#### 4. Chạy demo an toàn với SMTP mock
 
-Tạo workflow tạm trong n8n gồm **Manual Trigger → Send Email**. Chọn SMTP credential, đặt **To Email** là địa chỉ nhận thử (trên máy hiện tại `khaipham111005@gmail.com`), Subject `Kiểm tra Omni Studio`, nội dung ngắn, rồi **Execute workflow**. Kiểm tra Inbox/Spam và **Executions** của n8n. Bước này xác minh SMTP mà chưa lấy/hủy trạng thái email trong hàng đợi bài viết. Xóa hoặc giữ workflow thử ở trạng thái chưa Publish sau khi kiểm tra.
+Để demo không gửi thư thật, chạy Mailpit bằng profile `demo-mail` của Compose đang dùng, ví dụ `docker compose --profile demo-mail --env-file BE/.env -f BE/compose.n8n-host.yaml up -d n8n mailpit` (đổi sang `BE/compose.yaml` nếu dùng PostgreSQL trong Compose). Trong n8n, SMTP credential trỏ Host `mailpit`, Port `1025`, không bật SSL/TLS, không cần xác thực SMTP; mở hộp thư mock ở http://localhost:8025. Đặt email Admin/Manager thử nghiệm không có đuôi `.test` để outbox tạo thông báo. Không điền SMTP production cho bước này.
 
-Sau khi thư thử đến, tạo workflow mới và chọn menu ba chấm ở canvas → **Import from File** → [post-approval-email.n8n.json](BE/workflows/post-approval-email.n8n.json). Gán Postgres credential cho **cả hai node Postgres** (`Queue reminders and claim email`, `Mark email sent`), gán SMTP credential cho `Send approval email`, sửa **From Email** đang là placeholder `configure-smtp-sender@example.com`. Giữ biểu thức **To Email**. Kiểm tra các node không báo thiếu credential, rồi **Publish** để lịch 5 phút bắt đầu chạy; chỉ lưu bản nháp trong n8n chưa kích hoạt lịch. Tạo một bài chờ duyệt có giờ đăng tương lai bằng tài khoản Editor, đợi tối đa khoảng 5 phút, kiểm tra email, n8n **Executions** và Omni Studio → **Workflow & RPA → Thông báo gần đây**. Không bấm duyệt/đăng thật chỉ để thử email. Xem [n8n import workflow](https://docs.n8n.io/build/manage-workflows/export-and-import/) và [publish workflow](https://docs.n8n.io/build/understand-workflows/save-and-publish-workflows/).
+Đặt `RPA_EMAIL`/`RPA_PASSWORD` cho tài khoản Omni Studio riêng, ưu tiên Viewer chỉ đọc; đặt `RPA_BASE_URL=http://127.0.0.1:5173` nếu FE chạy Vite, hoặc `http://127.0.0.1:3000` nếu đã build và dùng `npm start`. Khởi động API, FE, rồi `npm run worker:rpa`. Worker chỉ kết nối origin loopback và không gửi mail.
 
-Workflow chỉ đánh dấu `sent` sau node SMTP thành công. Nếu node SMTP lỗi hoặc n8n dừng ở trạng thái `sending`, kiểm tra **Executions** và hộp thư trước khi thử gửi lại; không chạy lại cả workflow một cách mù quáng vì có thể gửi trùng. Nếu không có thư, kiểm tra: credential SMTP, From Email, Postgres credential, trạng thái **Published**, người nhận Admin/Manager đang active, bài còn `pending` và chưa quá giờ, Inbox/Spam. Không đặt địa chỉ `.test` làm người nhận thật.
+Import [post-approval-email.n8n.json](BE/workflows/post-approval-email.n8n.json) vào n8n nhưng **giữ chưa Publish**. Gán PostgreSQL credential cho bốn node `Queue approval reads`, `Claim ready notifications`, `Preflight current revision`, `Mark email sent`; gán SMTP mock cho `Send approval email`, sửa `From Email`. Link trong nội dung mail mặc định dùng `http://localhost:5173`; sửa origin này trong node nếu người nhận dùng máy khác hoặc FE phục vụ từ cổng 3000. Tài khoản Editor gửi một bài chờ duyệt có giờ đăng cách hiện tại ít nhất 60 phút. Trong n8n, chạy workflow thủ công một lần để xếp job, chờ worker đọc bài (tối đa khoảng 30 giây), rồi chạy thủ công lần nữa để gửi thư. Mở hộp thư web SMTP mock, chọn link trong thư, đăng nhập Admin/Manager và tự bấm **Duyệt** hoặc **Từ chối**. Kiểm tra job và email ở **Workflow & RPA**. Không cần bật publishing worker.
+
+Workflow chỉ đánh dấu `sent` sau node SMTP thành công. Mỗi recipient/phiên bản có một outbox row và mỗi phiên bản có một RPA job. `sending` không tự nhận lại khi n8n hoặc SMTP lỗi để tránh gửi lặp khi kết quả SMTP chưa rõ; kiểm tra hộp thư/Executions trước khi xử lý thủ công. Trước node SMTP, workflow kiểm tra lại phiên bản/trạng thái bài và người nhận; bài đã duyệt, từ chối, hủy hoặc quá giờ bị loại. Một thay đổi đúng lúc giữa kiểm tra này và thao tác SMTP vẫn là khoảng đua ngoài giao dịch; cần kiểm tra lại trên WebApp trước khi ra quyết định. Nếu muốn chạy lịch 5 phút sau demo, chỉ Publish workflow sau khi SMTP và địa chỉ người nhận đã được kiểm chứng.
 
 #### 5. Chạy RPA theo lịch (tùy chọn)
 
-Import thêm [workflow chụp Dashboard](BE/workflows/rpa-dashboard.n8n.json) (08:00 hằng ngày) và [workflow xuất CSV](BE/workflows/rpa-weekly-csv.n8n.json) (08:15 thứ Hai), gán PostgreSQL credential. Hai workflow chỉ xếp việc. Điền `RPA_EMAIL`/`RPA_PASSWORD` của một tài khoản Admin/Manager riêng vào `BE/.env`, chạy API/FE cùng origin ở cổng cấu hình và khởi động `npm run worker:rpa` trong terminal riêng. Playwright dùng Chrome trên máy chạy worker, mở UI để chụp Dashboard hoặc bấm nút xuất CSV, lưu file vào `BE/rpa/output/<run-id>/`; tải file từ **Workflow & RPA**. Có thể dùng nút **Chụp Dashboard** và **Xuất CSV** tại UI để kiểm tra thủ công mà không cần bật n8n. CSV là bản xuất nghiệp vụ, không thay thế backup PostgreSQL. Không chạy publishing worker để thử RPA.
+Import thêm [workflow chụp Dashboard](BE/workflows/rpa-dashboard.n8n.json) (08:00 hằng ngày) và [workflow xuất CSV](BE/workflows/rpa-weekly-csv.n8n.json) (08:15 thứ Hai), gán PostgreSQL credential. Hai workflow chỉ xếp việc. Cùng worker RPA có thể chụp Dashboard/xuất CSV vào `BE/rpa/output/<run-id>/`; tải file từ **Workflow & RPA**. CSV là bản xuất nghiệp vụ, không thay thế backup PostgreSQL.
 
-Các workflow JSON trong repo mặc định chưa Publish. Đến nay mới kiểm thử UI/Playwright và hàng đợi PostgreSQL; việc n8n gửi email thật cần credential do chủ hộp thư tự nhập và kiểm tra trong n8n.
+Các workflow JSON trong repo mặc định chưa Publish. Demo dùng SMTP mock; việc gửi email thật cần credential do chủ hộp thư tự nhập và tự kích hoạt n8n.
 
 ## Robot Framework
 
@@ -327,7 +367,7 @@ Trong tab **Bài trên nền tảng**, bộ lọc hiển thị Facebook, Instagr
 
 Quản lý bài viết mở tab **Lịch & kế hoạch**: tài khoản thật bên trái, lịch theo giờ bên phải, đổi Ngày/Tuần/Tháng và múi giờ GMT+7/GMT+8/UTC. Nhấp ô giờ để soạn; menu trên thẻ cho phép sửa bản soạn hoặc hủy các lượt server còn chờ. Tab **Bài trên nền tảng** giữ khả năng đọc/sửa/xóa bài thật trên Facebook.
 
-Composer mới chọn nhiều Page đã xác minh, tối đa 10 nội dung nối tiếp, ảnh riêng từng nội dung, đếm ký tự, preview theo nền tảng, độ trễ và lặp ngày/tuần tối đa 30 lượt. Reply/bình luận chỉ lưu bản soạn; server từ chối scheduled reply bằng 422. Chỉ Facebook có adapter thực thi; preview LinkedIn/X hoặc các kênh khác không cấp khả năng đăng thật.
+Composer mới chọn nhiều Page đã xác minh, tối đa 10 nội dung nối tiếp, ảnh riêng từng nội dung, đếm ký tự, preview theo nền tảng, độ trễ và lặp ngày/tuần tối đa 30 lượt. Có thể gắn một nhãn quản lý nội bộ (tối đa 50 ký tự) cho kế hoạch; nhãn được lưu và mở lại cùng kế hoạch, không tự chèn vào bài đăng. Reply/bình luận chỉ lưu bản soạn; server từ chối scheduled reply bằng 422. Chỉ Facebook có adapter thực thi; preview LinkedIn/X hoặc các kênh khác không cấp khả năng đăng thật.
 
 Kho kế hoạch server dùng hai bảng **publishing_plans** và **publishing_deliveries**, tách khỏi snapshot workspace. Chạy tại gốc:
 

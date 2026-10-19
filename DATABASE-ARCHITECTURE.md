@@ -13,9 +13,11 @@ Một workspace chung (id 1), nhiều thành viên có vai trò. Chưa triển k
 | Lịch đăng, lặp, trạng thái          | publishing_plans, publishing_deliveries, studio_plan_history, studio_delivery_history             | /api/publishing/*                                            |
 | Chat, phản hồi                      | studio_conversations, studio_messages                                                             | /api/workspace, /api/records/conversations                   |
 | Khách hàng, traffic                 | studio_customers, studio_traffic_events                                                           | /api/records/customers,traffic                               |
-| Dashboard, hiệu suất, thông tin bài | studio_metrics, studio_reports + aggregates của campaign/ads/posts                                | /api/dashboard, /api/records/metrics,reports                 |
+| Tổng quan, hiệu suất, thông tin bài | studio_metrics, publishing_plans/deliveries và các bảng workspace                                 | /api/dashboard, /api/records/metrics,reports                 |
+| AI Analysis theo kỳ                 | ai_import_batches, ai_import_rows, ai_analysis_runs                                               | /api/ai/imports, /api/ai/analyses                            |
 | SEO, đối thủ, kiểm tra thứ hạng     | studio_keywords, studio_competitors, studio_rank_checks                                           | /api/workspace, /api/records/keywords,competitors,rankChecks |
 | Workflow/RPA, lịch sử chạy          | studio_workflows, studio_workflow_runs                                                            | /api/records/workflows,workflowRuns                          |
+| Thông báo duyệt qua RPA             | studio_automation_messages, studio_rpa_runs                                                       | /api/automation/status, /api/publishing/approvals            |
 | Nhãn, thông báo, cấu hình, duyệt    | studio_tags, studio_notifications, studio_settings, studio_approvals                              | /api/records/*                                               |
 | Lịch sử thay đổi, khôi phục         | studio_audit, studio_snapshot_history, omni_workspace (compatibility snapshot), studio_migrations | /api/history, /api/snapshots                                 |
 
@@ -39,6 +41,26 @@ erDiagram
 ```
 
 Mỗi nhóm dữ liệu có bảng riêng, khóa chính `(workspace_id,id)`, FK và index cho quan hệ, cột typed cho trường truy vấn (numeric cho ngân sách, timestamptz cho mốc thời gian) và `payload JSONB` giữ các thuộc tính UI mở rộng. Các bản ghi xóa được soft-delete. Bản sao trước khi sửa và audit before/after giữ được trạng thái cũ. API GET workspace ghép bảng quan hệ; PUT ghi tất cả bảng và compatibility snapshot trong một transaction có version lock. Tải lại không ghi dữ liệu rỗng vào DB và không tự xóa mẫu khỏi dữ liệu server.
+
+## AI Analysis theo kỳ
+
+Migration 012 bổ sung batch nhập chỉ số, hàng số liệu từng Facebook post và lịch sử phân tích AI; không dùng `studio_metrics` cũ làm nguồn mặc định vì các bản ghi cũ không bảo đảm cùng định nghĩa chỉ số/kỳ đo. Batch giữ Page ID, kỳ, múi giờ, nguồn dữ liệu, thời gian/người nhập và phiên bản định nghĩa. Mỗi hàng giữ provider post ID, các số đếm trong kỳ, text tùy chọn và ràng buộc chống trùng/chồng kỳ. Không quy đổi snapshot lifetime thành số liệu trong kỳ. Backend tính KPI/facts có ID, tỷ lệ mẫu số thiếu/0 là `null` với lý do. `reach` chỉ là reach theo bài, không phải Page unique reach.
+
+`ai_analysis_runs` giữ actor, batch/snapshot đầu vào đã lọc, hash và phiên bản prompt/schema/model, output đã kiểm tra fact ID, trạng thái, usage/chi phí hoặc phần usage chưa xác định. Cache theo hash + version; giới hạn và reservation được lưu bền vững để tránh yêu cầu đồng thời vượt ngân sách. Admin/Manager nhập và gọi AI; phiên đăng nhập khác chỉ đọc. Mutation vẫn qua session/CSRF và SQL parameterized. Text bài được coi là dữ liệu không tin cậy; credential, email, cookie và token không nằm trong payload AI. Provider chỉ giải thích dữ liệu được backend tính; không thực thi tool hoặc thao tác đăng bài.
+
+## Tổng quan vận hành
+
+```mermaid
+flowchart LR
+  W[Workspace: chiến dịch, quảng cáo, khách, hội thoại, từ khóa] --> D[Trang Tổng quan]
+  P[PostgreSQL: publishing_plans và deliveries] --> A[GET /api/dashboard]
+  M[studio_metrics: bản ghi đo thủ công] --> A
+  A --> D
+  S[GET /api/social/accounts: danh tính kết nối] --> D
+  D --> T[Điều hướng tới bảng duyệt, lịch, báo cáo và từng module]
+```
+
+`GET /api/dashboard?period=week|month` chỉ đọc: đếm trạng thái kế hoạch, lấy tối đa 5 bài pending và 5 lượt queued sắp đến trong 7 ngày thuộc phiên bản hiện tại. Lượt published trong 7/30 ngày tính cả delivery của phiên bản cũ vì đó vẫn là kết quả đăng thật; trạng thái failed/unknown cần kiểm tra chỉ tính phiên bản hiện tại. `studio_metrics` có `measuredAt` trong cùng kỳ được cộng vào số liệu ghi nhận. Bài đăng trực tiếp trên Page không nằm trong delivery nên không được cộng. Số liệu reach/clicks/spend là bản ghi do người dùng nhập; chưa có đồng bộ insight tự động. Tài khoản đã kết nối lấy từ Social API đã xác minh; các module nội bộ lấy từ workspace đã tải. Frontend làm mới mỗi 30 giây hoặc khi kế hoạch thay đổi, không bật worker hay gửi bài. Khi API lỗi hiển thị lỗi, không biến dữ liệu thiếu thành số 0. Vai trò chỉ xem đọc được tổng quan, còn hành động duyệt và đăng vẫn qua API được bảo vệ riêng.
 
 ## Quyền và phiên
 
@@ -70,3 +92,5 @@ Admin có thể đặt lại mật khẩu thành viên trong Thành viên & phâ
 ## Duyệt lịch và giữ lịch sử lượt đăng
 
 Migration 007 thêm pending và cơ chế hủy bài chưa duyệt quá giờ. Migration 008 thêm publishing_deliveries.plan_version; sửa/hủy/gửi lại giữ nguyên lượt cũ và lịch sử. Unique theo plan/account/item/occurrence/version; worker claim phiên bản hiện tại và kiểm tra bài nối tiếp trong cùng phiên bản. Pending không tạo delivery; approve chỉ Admin/Manager, yêu cầu giờ tương lai và version hiện tại. Resubmit cancelled chỉ về pending, phải duyệt lại. Sweep hủy hoạt động độc lập với publishing worker.
+
+Migration 013 mở `studio_rpa_runs.kind` cho `approval_read`, lưu `plan_id`, `plan_version`, `result` JSONB và `read_at`. Unique theo ID/phiên bản bảo đảm một job đọc UI cho mỗi lần gửi duyệt; foreign key xóa kèm kết quả RPA khi Admin xóa vĩnh viễn bài. `studio_automation_messages` tiếp tục là outbox theo người nhận/phiên bản/loại thư; n8n chỉ claim khi job đọc thành công, và kiểm tra lại trạng thái, phiên bản, giờ đăng, người nhận trước SMTP. Trạng thái `sending` không tự retry khi kết quả SMTP chưa rõ.

@@ -18,7 +18,7 @@ async function scanApprovalReminders(pool, at = new Date()) {
          SELECT p.id,p.version,u.id,u.email,reminder.kind
          FROM publishing_plans p
          CROSS JOIN LATERAL (VALUES
-            ('approval_due_soon', (p.payload->>'scheduledAt')::timestamptz <= $1::timestamptz + interval '3 hours'),
+            ('approval_due_soon', (p.payload->>'scheduledAt')::timestamptz <= $1::timestamptz + interval '3 hours' AND p.updated_at <= $1::timestamptz - interval '1 hour'),
             ('approval_overdue', p.updated_at <= $1::timestamptz - interval '2 days')
          ) AS reminder(kind,due)
          JOIN studio_users u ON u.workspace_id=1 AND u.active AND u.role IN ('admin','manager')
@@ -31,12 +31,50 @@ async function scanApprovalReminders(pool, at = new Date()) {
     return result.rowCount;
 }
 
-async function runBrowserJob({ kind, cookie, credentials, port = 3000, runId, browserFactory }) {
+async function readApprovalPage(page, planId, planVersion, open) {
+    await open(`posts/approvals/${planId}`);
+    await page.getByRole('heading', { name: 'Duyệt bài viết' }).waitFor();
+    await page
+        .getByRole('button', { name: /Chưa duyệt/ })
+        .first()
+        .click();
+    const row = page.locator(`tr[data-plan-id="${planId}"]`);
+    await row.waitFor({ timeout: 15000 });
+    await row.getByRole('button', { name: 'Xem chi tiết' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Chi tiết bài duyệt' });
+    await dialog.waitFor();
+    const value = async (testId) => (await dialog.getByTestId(testId).innerText()).trim();
+    const contents = await dialog.getByTestId('approval-content').allInnerTexts();
+    const result = {
+        planId: await value('approval-plan-id'),
+        planVersion: Number(await value('approval-plan-version')),
+        name: await value('approval-name'),
+        creator: await value('approval-creator'),
+        content: contents.map((text) => text.trim()).join('\n\n'),
+        pages: await value('approval-pages'),
+        scheduledAt: await value('approval-scheduled-at'),
+        readAt: new Date().toISOString()
+    };
+    if (result.planId !== planId || result.planVersion !== planVersion || !result.content)
+        throw new Error('RPA_APPROVAL_MISMATCH');
+    return result;
+}
+
+async function runBrowserJob({
+    kind,
+    cookie,
+    credentials,
+    port = 3000,
+    baseUrl = `http://127.0.0.1:${port}`,
+    runId,
+    planId,
+    planVersion,
+    browserFactory
+}) {
     const { chromium } = browserFactory || require('playwright');
     const browser = await chromium.launch({ channel: 'chrome', headless: true });
-    const baseUrl = `http://127.0.0.1:${port}`;
     const folder = path.join(outputRoot, runId);
-    await fs.mkdir(folder, { recursive: true });
+    if (kind !== 'approval_read') await fs.mkdir(folder, { recursive: true });
     try {
         const context = await browser.newContext({
             viewport: { width: 1440, height: 900 },
@@ -62,11 +100,16 @@ async function runBrowserJob({ kind, cookie, credentials, port = 3000, runId, br
             if (await page.getByRole('button', { name: 'Đăng nhập' }).count())
                 throw new Error('Phiên đăng nhập RPA không hợp lệ.');
         };
+        if (kind === 'approval_read') {
+            const result = await readApprovalPage(page, planId, planVersion, open);
+            await context.close();
+            return result;
+        }
         if (kind === 'dashboard_screenshot') {
             await open('dashboard');
             await page.getByRole('heading', { name: 'Tổng quan' }).first().waitFor();
             await page.screenshot({ path: path.join(folder, 'dashboard.png'), fullPage: true });
-        } else {
+        } else if (kind === 'weekly_csv') {
             for (const [hash, name] of [
                 ['postInsights', 'post-insights.csv'],
                 ['traffic', 'traffic.csv']
@@ -76,7 +119,7 @@ async function runBrowserJob({ kind, cookie, credentials, port = 3000, runId, br
                 await page.getByRole('button', { name: 'Xuất CSV' }).first().click();
                 await (await download).saveAs(path.join(folder, name));
             }
-        }
+        } else throw new Error('RPA_KIND_UNSUPPORTED');
         await context.close();
         return files[kind];
     } finally {
@@ -103,13 +146,13 @@ function automationRouter(pool, options = {}) {
                      ORDER BY m.created_at DESC LIMIT 50`
                 ),
                 pool.query(
-                    'SELECT id,kind,status,artifact_name,error,created_at,finished_at FROM studio_rpa_runs ORDER BY created_at DESC LIMIT 20'
+                    'SELECT id,kind,status,plan_id,plan_version,read_at,artifact_name,error,created_at,finished_at FROM studio_rpa_runs ORDER BY created_at DESC LIMIT 20'
                 )
             ]);
             res.json({ messages: messages.rows, runs: runs.rows });
         } catch {
             res.status(503).json({
-                error: 'Chưa đọc được dữ liệu tự động hóa. Kiểm tra migration 009.'
+                error: 'Chưa đọc được dữ liệu tự động hóa. Kiểm tra migration 013.'
             });
         }
     });
@@ -165,11 +208,11 @@ function automationRouter(pool, options = {}) {
         const row = (
             await pool.query('SELECT kind,status FROM studio_rpa_runs WHERE id=$1', [req.params.id])
         ).rows[0];
-        if (!row || row.status !== 'success' || !files[row.kind].includes(req.params.name))
+        if (!row || row.status !== 'success' || !files[row.kind]?.includes(req.params.name))
             return res.sendStatus(404);
         res.download(path.join(outputRoot, req.params.id, req.params.name));
     });
     return router;
 }
 
-module.exports = { automationRouter, scanApprovalReminders, runBrowserJob };
+module.exports = { automationRouter, scanApprovalReminders, readApprovalPage, runBrowserJob };

@@ -61,8 +61,9 @@ export default function PublishingCalendar() {
     const platformRequest = useRef(0);
     const scroll = useRef(null);
     const mounted = useRef(true);
+    const loaded = useRef(false);
     async function reload() {
-        setLoading(true);
+        if (!loaded.current) setLoading(true);
         setError('');
         try {
             const status = await socialRequest('/api/publishing/status');
@@ -83,15 +84,24 @@ export default function PublishingCalendar() {
         } catch (e) {
             if (mounted.current) setError(e.message);
         } finally {
-            if (mounted.current) setLoading(false);
+            if (mounted.current) {
+                loaded.current = true;
+                setLoading(false);
+            }
         }
     }
     useEffect(() => {
         mounted.current = true;
         reload();
-        const listener = () => reload();
+        const listener = (event) => {
+            if (typeof event?.detail?.message === 'string' && event.detail.message.trim()) {
+                setNotice(event.detail.message.trim());
+                setError('');
+            }
+            reload();
+        };
         window.addEventListener('publishing-plans-changed', listener);
-        const timer = setInterval(listener, 30000);
+        const timer = setInterval(reload, 30000);
         return () => {
             mounted.current = false;
             window.removeEventListener('publishing-plans-changed', listener);
@@ -321,6 +331,8 @@ export default function PublishingCalendar() {
     }
     async function cancelPlan() {
         setBusy(true);
+        setError('');
+        setNotice('');
         try {
             await socialRequest(`/api/publishing/plans/${cancel.id}/cancel`, {
                 method: 'POST',
@@ -328,8 +340,11 @@ export default function PublishingCalendar() {
             });
             setCancel(null);
             await reload();
+            setNotice('Đã hủy các lượt còn chờ. Kế hoạch và lịch sử vẫn được lưu.');
         } catch (e) {
-            setError(e.message);
+            setCancel(null);
+            await reload();
+            setError(`${e.message} Đã tải lại kế hoạch để bạn kiểm tra trước khi thử lại.`);
         } finally {
             setBusy(false);
         }
@@ -383,26 +398,43 @@ export default function PublishingCalendar() {
                     />
                     <strong>{account?.name || event.accountName || event.name}</strong>
                     <details className="planner-event-menu">
-                        <summary aria-label={`Thao tác ${event.name}`} title="Thao tác">
+                        <summary aria-label={`Thao tác với ${event.name}`} title="Thao tác">
                             ···
                         </summary>
                         <div>
-                            <button onClick={() => edit(event)}>
+                            <button
+                                onClick={(e) => {
+                                    e.currentTarget.closest('details').open = false;
+                                    edit(event);
+                                }}
+                            >
                                 <Pencil size={13} />
                                 {event.source === 'platform' ? 'Xem bài đã đăng' : 'Xem / sửa'}
                             </button>
                             {event.source === 'server' &&
-                            event.status !== 'Đã hủy' &&
+                            (event.plan.status === 'pending' ||
+                                (event.plan.status === 'scheduled' &&
+                                    event.deliveryStatus === 'queued')) &&
                             ['admin', 'manager'].includes(user.role) ? (
-                                <button onClick={() => setCancel(event.plan)}>
+                                <button
+                                    onClick={(e) => {
+                                        e.currentTarget.closest('details').open = false;
+                                        setCancel(event.plan);
+                                    }}
+                                >
                                     <Trash2 size={13} />
-                                    Hủy lượt còn chờ
+                                    Hủy lịch còn chờ
                                 </button>
                             ) : (
                                 event.source === 'local' &&
                                 !event.facebookPostId &&
                                 !event.publishResults?.length && (
-                                    <button onClick={() => remove('posts', [event.id])}>
+                                    <button
+                                        onClick={(e) => {
+                                            e.currentTarget.closest('details').open = false;
+                                            remove('posts', [event.id]);
+                                        }}
+                                    >
                                         <Trash2 size={13} />
                                         Xóa bản soạn
                                     </button>
@@ -616,7 +648,7 @@ export default function PublishingCalendar() {
                     </p>
                 )}
                 {notice && (
-                    <p role="status" className="social-alert">
+                    <p role="status" className="social-success">
                         {notice}
                     </p>
                 )}
@@ -786,11 +818,14 @@ export default function PublishingCalendar() {
                 )}
             </section>
             {cancel && (
-                <Modal title="Hủy các lượt đăng còn chờ?" onClose={() => !busy && setCancel(null)}>
+                <Modal title="Hủy lịch còn chờ?" onClose={() => !busy && setCancel(null)}>
                     <div className="dialog-body">
-                        <p>{cancel.name}. Lượt đã đăng hoặc đang gửi không được thu hồi.</p>
+                        <p>
+                            <strong>{cancel.name}</strong>: các lượt còn chờ sẽ được hủy. Lượt đã
+                            đăng hoặc đang gửi vẫn giữ nguyên; kế hoạch và lịch sử vẫn được lưu.
+                        </p>
                         <Button kind="danger" disabled={busy || saving} onClick={cancelPlan}>
-                            Xác nhận hủy kế hoạch
+                            {busy ? 'Đang hủy…' : 'Xác nhận hủy lịch'}
                         </Button>
                     </div>
                 </Modal>
