@@ -13,7 +13,14 @@ export async function socialRequest(url, options = {}) {
         headers: { 'Content-Type': 'application/json', ...options.headers }
     });
     const body = await response.json();
-    if (!response.ok) throw new Error(body.error || 'Không thể hoàn tất yêu cầu.');
+    if (!response.ok) {
+        const error = new Error(body.error || 'Không thể hoàn tất yêu cầu.');
+        error.providerCode = body.providerCode;
+        error.providerSubcode = body.providerSubcode;
+        error.providerHttpStatus = body.providerHttpStatus;
+        error.networkCode = body.networkCode;
+        throw error;
+    }
     return body;
 }
 export function Connections() {

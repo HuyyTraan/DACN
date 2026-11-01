@@ -24,7 +24,12 @@ class SocialError extends Error {
 }
 function publicError(error) {
     if (error instanceof SocialError) return { status: error.status, error: error.message };
-    const code = error.response?.data?.error?.code;
+    const providerError = error.response?.data?.error;
+    const code = providerError?.code;
+    const networkCode =
+        typeof error.code === 'string' && /^[A-Z0-9_]{1,32}$/.test(error.code)
+            ? error.code
+            : undefined;
     return {
         status: code === 190 ? 401 : [10, 200].includes(code) ? 403 : 502,
         error:
@@ -33,7 +38,14 @@ function publicError(error) {
                 : [10, 200].includes(code)
                   ? 'Meta từ chối quyền. Kiểm tra quyền đăng/đọc nội dung và tài khoản đã liên kết.'
                   : 'Không thể hoàn tất yêu cầu với Meta. Kiểm tra kết nối và trạng thái tài khoản.',
-        ...(Number.isInteger(code) ? { providerCode: code } : {})
+        ...(Number.isInteger(code) ? { providerCode: code } : {}),
+        ...(Number.isInteger(providerError?.error_subcode)
+            ? { providerSubcode: providerError.error_subcode }
+            : {}),
+        ...(Number.isInteger(error.response?.status)
+            ? { providerHttpStatus: error.response.status }
+            : {}),
+        ...(networkCode ? { networkCode } : {})
     };
 }
 function decodeImage(value) {
