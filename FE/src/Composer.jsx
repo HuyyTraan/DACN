@@ -26,6 +26,27 @@ import {
     utcTime
 } from './publishing-model.mjs';
 
+function publishFailureMessage(result) {
+    const diagnostics = [
+        Number.isInteger(result.providerCode) ? `Meta ${result.providerCode}` : '',
+        Number.isInteger(result.providerSubcode) ? `subcode ${result.providerSubcode}` : '',
+        Number.isInteger(result.providerHttpStatus) ? `HTTP ${result.providerHttpStatus}` : '',
+        result.networkCode ? `network ${result.networkCode}` : ''
+    ].filter(Boolean);
+    return `${result.error}${diagnostics.length ? ` · ${diagnostics.join(', ')}` : ''} · Kiểm tra Page trước khi đăng lại.`;
+}
+
+function publishResultPlatform(result) {
+    if (result.platform) return result.platform;
+    return (
+        {
+            facebook: 'Facebook',
+            instagram: 'Instagram',
+            threads: 'Threads'
+        }[result.accountId?.split(':', 1)[0]] || 'Nền tảng'
+    );
+}
+
 export default function Composer({ post, onClose }) {
     const {
         data,
@@ -435,8 +456,13 @@ export default function Composer({ post, onClose }) {
                 results.push({
                     accountId: account.id,
                     accountName: account.name,
+                    platform: account.platform,
                     status: 'check-required',
-                    error: e.message
+                    error: e.message,
+                    providerCode: e.providerCode,
+                    providerSubcode: e.providerSubcode,
+                    providerHttpStatus: e.providerHttpStatus,
+                    networkCode: e.networkCode
                 });
             }
             outcomeRef.current = [...results];
@@ -841,10 +867,13 @@ export default function Composer({ post, onClose }) {
                         <div className="studio-results" role="status">
                             {outcomes.map((r) => (
                                 <p key={r.accountId}>
-                                    <strong>{r.accountName}</strong>:{' '}
+                                    <strong>
+                                        {r.accountName} · {publishResultPlatform(r)}
+                                    </strong>
+                                    :{' '}
                                     {r.status === 'published'
                                         ? `Đã đăng · ${r.providerPostId}`
-                                        : `${r.error} · Kiểm tra Page trước khi đăng lại.`}
+                                        : publishFailureMessage(r)}
                                 </p>
                             ))}
                         </div>
